@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { Save, CheckCircle, XCircle, Loader, Ban } from 'lucide-react';
+import { Save, CheckCircle, XCircle, Loader, Ban, Cloud } from 'lucide-react';
 import debounce from 'lodash.debounce';
 import Switch from '../../ui/Switch';
 import Button from '../../ui/Button';
@@ -484,6 +484,43 @@ export default function ExportPanel({
     }
   };
 
+  const handleExportToImmich = async () => {
+    if (isExporting) return;
+    if (!isEditorContext || !selectedImage) return;
+
+    const exportSettings: ExportSettings = {
+      filenameTemplate,
+      jpegQuality: jpegQuality,
+      keepMetadata,
+      resize: enableResize ? { mode: resizeMode, value: resizeValue, dontEnlarge } : null,
+      stripGps,
+      exportMasks: exportMasks,
+      watermark:
+        enableWatermark && watermarkPath
+          ? {
+              path: watermarkPath,
+              anchor: watermarkAnchor,
+              scale: watermarkScale,
+              spacing: watermarkSpacing,
+              opacity: watermarkOpacity,
+            }
+          : null,
+    };
+
+    try {
+      setExportState({ status: Status.Exporting, progress: { current: 0, total: 1 }, errorMessage: '' });
+      await invoke(Invokes.ExportAndUploadToImmich, {
+        originalPath: selectedImage.path,
+        jsAdjustments: adjustments,
+        exportSettings,
+      });
+      setExportState({ status: Status.Success, progress: { current: 1, total: 1 }, errorMessage: '' });
+    } catch (err) {
+      console.error('Failed to export to Immich:', err);
+      setExportState({ status: Status.Error, progress: { current: 0, total: 1 }, errorMessage: String(err) });
+    }
+  };
+
   const canExport = numImages > 0;
   const isLut = fileFormat === FileFormats.Cube;
   const itemLabel = isLut ? 'LUT' : 'Image';
@@ -761,6 +798,18 @@ export default function ExportPanel({
               <Save size={18} className="mr-2" /> Export {numImages > 1 ? `${numImages} ${itemLabel}s` : itemLabel}
             </>
           )}
+        </Button>
+        <Button
+          className={`group rounded-md h-11 w-full flex items-center text-md !font-bold justify-center mt-2 bg-sky-600/80 hover:bg-sky-600 text-white`}
+          disabled={
+            !isEditorContext || isExporting || !appSettings || !appSettings.immichUrl || !appSettings.immichApiKey
+          }
+          onClick={handleExportToImmich}
+          size="lg"
+        >
+          <>
+            <Cloud size={18} className="mr-2" /> Export to Immich
+          </>
         </Button>
       </div>
     </div>

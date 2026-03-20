@@ -395,6 +395,10 @@ pub struct AppSettings {
     pub waveform_height: Option<u32>,
     #[serde(default)]
     pub active_waveform_channel: Option<String>,
+    #[serde(default)]
+    pub immich_url: Option<String>,
+    #[serde(default)]
+    pub immich_api_key: Option<String>,
 }
 
 fn default_adjustment_visibility() -> HashMap<String, bool> {
@@ -461,6 +465,8 @@ impl Default for AppSettings {
             is_waveform_visible: Some(false),
             waveform_height: Some(220),
             active_waveform_channel: Some("luma".to_string()),
+            immich_url: None,
+            immich_api_key: None,
         }
     }
 }

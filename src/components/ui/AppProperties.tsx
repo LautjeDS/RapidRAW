@@ -91,6 +91,7 @@ export enum Invokes {
   SaveHdr = 'save_hdr',
   SavePresets = 'save_presets',
   SaveSettings = 'save_settings',
+  ExportAndUploadToImmich = 'export_and_upload_to_immich',
   SetColorLabelForPaths = 'set_color_label_for_paths',
   ShowInFinder = 'show_in_finder',
   StartBackgroundIndexing = 'start_background_indexing',
@@ -178,6 +179,8 @@ export interface AppSettings {
   isWaveformVisible?: boolean;
   waveformHeight?: number;
   activeWaveformChannel?: string;
+  immichUrl?: string;
+  immichApiKey?: string;
 }
 
 export interface BrushSettings {

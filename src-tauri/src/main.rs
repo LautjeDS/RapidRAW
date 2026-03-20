@@ -2114,6 +2114,137 @@ async fn export_image(
 }
 
 #[tauri::command]
+async fn export_and_upload_to_immich(
+    original_path: String,
+    js_adjustments: Value,
+    export_settings: ExportSettings,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    // Ensure only one export task at a time (reuse same guard as export)
+    if state.export_task_handle.lock().unwrap().is_some() {
+        return Err("An export is already in progress.".to_string());
+    }
+
+    let context = get_or_init_gpu_context(&state)?;
+    let (original_image_data, is_raw) = get_full_image_for_processing(&state)?;
+    let context = Arc::new(context);
+
+    let task = tokio::spawn(async move {
+        let state = app_handle.state::<AppState>();
+        let app_handle_for_settings = app_handle.clone();
+
+        let processing_result: Result<(), String> = (async move {
+            let (source_path, _) = parse_virtual_path(&original_path);
+            let source_path_str = source_path.to_string_lossy().to_string();
+
+            let final_image = process_image_for_export(
+                &source_path_str,
+                &original_image_data,
+                &js_adjustments,
+                &export_settings,
+                &context,
+                &state,
+                is_raw,
+            )?;
+
+            let mut image_bytes = encode_image_to_bytes(&final_image, "jpg", export_settings.jpeg_quality)?;
+
+            exif_processing::write_image_with_metadata(
+                &mut image_bytes,
+                &source_path_str,
+                "jpg",
+                export_settings.keep_metadata,
+                export_settings.strip_gps,
+            )?;
+
+            // Load Immich credentials from settings
+            let settings = file_management::load_settings(app_handle_for_settings).unwrap_or_default();
+            let immich_url = settings.immich_url.ok_or("Immich URL not configured")?;
+            let immich_api_key = settings.immich_api_key.ok_or("Immich API key not configured")?;
+
+            let client = reqwest::Client::new();
+            let source_stem = source_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("image");
+            let upload_filename = format!("{}~R.jpg", source_stem);
+            let (file_created_at, file_modified_at) = match fs::metadata(&source_path) {
+                Ok(metadata) => {
+                    let created_time = metadata
+                        .created()
+                        .or_else(|_| metadata.modified())
+                        .unwrap_or_else(|_| std::time::SystemTime::now());
+                    let modified_time = metadata
+                        .modified()
+                        .or_else(|_| metadata.created())
+                        .unwrap_or(created_time);
+
+                    (
+                        chrono::DateTime::<chrono::Utc>::from(created_time).to_rfc3339(),
+                        chrono::DateTime::<chrono::Utc>::from(modified_time).to_rfc3339(),
+                    )
+                }
+                Err(_) => {
+                    let now = chrono::Utc::now().to_rfc3339();
+                    (now.clone(), now)
+                }
+            };
+
+            let device_id = "rapidraw".to_string();
+            let device_asset_id = format!("rapidraw:{}:{}", source_path_str, file_modified_at);
+
+            let form = reqwest::multipart::Form::new()
+                .part(
+                    "assetData",
+                    reqwest::multipart::Part::bytes(image_bytes).file_name(upload_filename.clone()),
+                )
+                .text("deviceId", device_id)
+                .text("deviceAssetId", device_asset_id)
+                .text("fileCreatedAt", file_created_at)
+                .text("fileModifiedAt", file_modified_at)
+                .text("filename", upload_filename);
+
+            let target = immich_url.trim_end_matches('/').to_string() + "/api/assets";
+
+            let resp = client
+                .post(&target)
+                .header("x-api-key", immich_api_key)
+                .multipart(form)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to upload to Immich: {}", e))?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let txt = resp.text().await.unwrap_or_default();
+                return Err(format!("Immich upload failed: {} - {}", status, txt));
+            }
+
+            Ok(())
+        })
+        .await;
+
+        if let Err(e) = processing_result {
+            let _ = app_handle.emit("export-error", e);
+        } else {
+            let _ = app_handle.emit("immich-upload-complete", ());
+        }
+
+        *app_handle
+            .state::<AppState>()
+            .export_task_handle
+            .lock()
+            .unwrap() = None;
+    });
+
+    *state.export_task_handle.lock().unwrap() = Some(task);
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn batch_export_images(
     output_folder: String,
     paths: Vec<String>,
@@ -4466,6 +4597,7 @@ fn main() {
             load_image,
             apply_adjustments,
             export_image,
+            export_and_upload_to_immich,
             batch_export_images,
             cancel_export,
             estimate_export_size,

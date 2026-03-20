@@ -313,6 +313,8 @@ export default function SettingsPanel({
 
   const [aiProvider, setAiProvider] = useState(appSettings?.aiProvider || 'cpu');
   const [aiConnectorAddress, setAiConnectorAddress] = useState<string>(appSettings?.aiConnectorAddress || '');
+  const [immichUrl, setImmichUrl] = useState<string>(appSettings?.immichUrl || '');
+  const [immichApiKey, setImmichApiKey] = useState<string>(appSettings?.immichApiKey || '');
   const [newShortcut, setNewShortcut] = useState('');
   const [newAiTag, setNewAiTag] = useState('');
 
@@ -374,6 +376,12 @@ export default function SettingsPanel({
     }
     if (appSettings?.aiProvider !== aiProvider) {
       setAiProvider(appSettings?.aiProvider || 'cpu');
+    }
+    if (appSettings?.immichUrl !== immichUrl) {
+      setImmichUrl(appSettings?.immichUrl || '');
+    }
+    if (appSettings?.immichApiKey !== immichApiKey) {
+      setImmichApiKey(appSettings?.immichApiKey || '');
     }
     setProcessingSettings({
       editorPreviewResolution: appSettings?.editorPreviewResolution || 1920,
@@ -849,6 +857,24 @@ export default function SettingsPanel({
                         ]}
                         value={appSettings?.fontFamily || 'poppins'}
                       />
+                    </SettingItem>
+                    <SettingItem label="Immich" description="Upload exported images to a local Immich instance.">
+                      <div className="space-y-3">
+                        <Input
+                          onBlur={() => onSettingsChange({ ...appSettings, immichUrl: immichUrl })}
+                          onChange={(e: any) => setImmichUrl(e.target.value)}
+                          placeholder="https://immich.local:2283"
+                          type="text"
+                          value={immichUrl}
+                        />
+                        <Input
+                          onBlur={() => onSettingsChange({ ...appSettings, immichApiKey: immichApiKey })}
+                          onChange={(e: any) => setImmichApiKey(e.target.value)}
+                          placeholder="API Key"
+                          type="password"
+                          value={immichApiKey}
+                        />
+                      </div>
                     </SettingItem>
                   </div>
                 </div>
