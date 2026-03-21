@@ -515,10 +515,12 @@ export default function ExportPanel({
 
     try {
       setExportState({ status: Status.Exporting, progress: { current: 0, total: 1 }, errorMessage: '' });
+      const outputFormat = FILE_FORMATS.find((f: FileFormat) => f.id === fileFormat)?.extensions[0] || 'jpg';
       await invoke(Invokes.ExportAndUploadToImmich, {
         originalPath: selectedImage.path,
         jsAdjustments: adjustments,
         exportSettings,
+        outputFormat,
       });
     } catch (err) {
       console.error('Failed to export to Immich:', err);
@@ -527,16 +529,17 @@ export default function ExportPanel({
   };
 
   const canExport = numImages > 0;
-  const canExportToImmich = !!isEditorContext && !!appSettings?.immichUrl && !!appSettings?.immichApiKey;
+  const canExportToImmich =
+    !!isEditorContext && !!appSettings?.immichUrl?.trim() && !!appSettings?.immichApiKey?.trim();
   const isLut = fileFormat === FileFormats.Cube;
   const canRunExport = useImmichExport ? canExport && canExportToImmich : canExport;
   const itemLabel = isLut ? 'LUT' : 'Image';
 
   useEffect(() => {
-    if (!canExportToImmich || isLut) {
+    if (!canExportToImmich || isLut || isBatchMode) {
       setUseImmichExport(false);
     }
-  }, [canExportToImmich, isLut]);
+  }, [canExportToImmich, isLut, isBatchMode]);
 
   return (
     <div className="flex flex-col h-full">

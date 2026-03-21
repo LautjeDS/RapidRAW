@@ -181,6 +181,7 @@ export interface AppSettings {
   activeWaveformChannel?: string;
   immichUrl?: string;
   immichApiKey?: string;
+  immichUploadSuffix?: string;
 }
 
 export interface BrushSettings {

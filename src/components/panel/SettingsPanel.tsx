@@ -315,6 +315,7 @@ export default function SettingsPanel({
   const [aiConnectorAddress, setAiConnectorAddress] = useState<string>(appSettings?.aiConnectorAddress || '');
   const [immichUrl, setImmichUrl] = useState<string>(appSettings?.immichUrl || '');
   const [immichApiKey, setImmichApiKey] = useState<string>(appSettings?.immichApiKey || '');
+  const [immichUploadSuffix, setImmichUploadSuffix] = useState<string>(appSettings?.immichUploadSuffix || '');
   const [newShortcut, setNewShortcut] = useState('');
   const [newAiTag, setNewAiTag] = useState('');
 
@@ -382,6 +383,9 @@ export default function SettingsPanel({
     }
     if (appSettings?.immichApiKey !== immichApiKey) {
       setImmichApiKey(appSettings?.immichApiKey || '');
+    }
+    if (appSettings?.immichUploadSuffix !== immichUploadSuffix) {
+      setImmichUploadSuffix(appSettings?.immichUploadSuffix || '~RapidRaw');
     }
     setProcessingSettings({
       editorPreviewResolution: appSettings?.editorPreviewResolution || 1920,
@@ -861,18 +865,37 @@ export default function SettingsPanel({
                     <SettingItem label="Immich" description="Upload exported images to a local Immich instance.">
                       <div className="space-y-3">
                         <Input
-                          onBlur={() => onSettingsChange({ ...appSettings, immichUrl: immichUrl })}
-                          onChange={(e: any) => setImmichUrl(e.target.value)}
-                          placeholder="https://immich.local:2283"
+                          onChange={(e: any) => {
+                            const nextValue = e.target.value;
+                            setImmichUrl(nextValue);
+                            onSettingsChange({ ...appSettings, immichUrl: nextValue });
+                          }}
+                          placeholder="Instance URL"
                           type="text"
                           value={immichUrl}
                         />
                         <Input
-                          onBlur={() => onSettingsChange({ ...appSettings, immichApiKey: immichApiKey })}
-                          onChange={(e: any) => setImmichApiKey(e.target.value)}
+                          onChange={(e: any) => {
+                            const nextValue = e.target.value;
+                            setImmichApiKey(nextValue);
+                            onSettingsChange({ ...appSettings, immichApiKey: nextValue });
+                          }}
                           placeholder="API Key"
                           type="password"
                           value={immichApiKey}
+                        />
+                        <Input
+                          onChange={(e: any) => {
+                            const nextValue = e.target.value;
+                            setImmichUploadSuffix(nextValue);
+                            onSettingsChange({
+                              ...appSettings,
+                              immichUploadSuffix: nextValue,
+                            });
+                          }}
+                          placeholder='Suffix of uploaded files (default: "~RapidRaw")'
+                          type="text"
+                          value={immichUploadSuffix}
                         />
                       </div>
                     </SettingItem>
