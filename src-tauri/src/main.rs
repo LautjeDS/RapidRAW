@@ -2126,15 +2126,14 @@ async fn export_and_upload_to_immich(
         return Err("An export is already in progress.".to_string());
     }
 
-    let context = get_or_init_gpu_context(&state)?;
-    let (original_image_data, is_raw) = get_full_image_for_processing(&state)?;
-    let context = Arc::new(context);
-
     let task = tokio::spawn(async move {
         let state = app_handle.state::<AppState>();
         let app_handle_for_settings = app_handle.clone();
 
         let processing_result: Result<(), String> = (async move {
+            let context = Arc::new(get_or_init_gpu_context(&state)?);
+            let (original_image_data, is_raw) = get_full_image_for_processing(&state)?;
+
             let (source_path, _) = parse_virtual_path(&original_path);
             let source_path_str = source_path.to_string_lossy().to_string();
 
@@ -2148,7 +2147,8 @@ async fn export_and_upload_to_immich(
                 is_raw,
             )?;
 
-            let mut image_bytes = encode_image_to_bytes(&final_image, "jpg", export_settings.jpeg_quality)?;
+            let mut image_bytes =
+                encode_image_to_bytes(&final_image, "jpg", export_settings.jpeg_quality)?;
 
             exif_processing::write_image_with_metadata(
                 &mut image_bytes,
@@ -2159,9 +2159,12 @@ async fn export_and_upload_to_immich(
             )?;
 
             // Load Immich credentials from settings
-            let settings = file_management::load_settings(app_handle_for_settings).unwrap_or_default();
+            let settings =
+                file_management::load_settings(app_handle_for_settings).unwrap_or_default();
             let immich_url = settings.immich_url.ok_or("Immich URL not configured")?;
-            let immich_api_key = settings.immich_api_key.ok_or("Immich API key not configured")?;
+            let immich_api_key = settings
+                .immich_api_key
+                .ok_or("Immich API key not configured")?;
 
             let client = reqwest::Client::new();
             let source_stem = source_path
@@ -2195,11 +2198,13 @@ async fn export_and_upload_to_immich(
             let device_id = "rapidraw".to_string();
             let device_asset_id = format!("rapidraw:{}:{}", source_path_str, file_modified_at);
 
+            let asset_part = reqwest::multipart::Part::bytes(image_bytes)
+                .file_name(upload_filename.clone())
+                .mime_str("image/jpeg")
+                .map_err(|e| format!("Failed to build upload multipart: {}", e))?;
+
             let form = reqwest::multipart::Form::new()
-                .part(
-                    "assetData",
-                    reqwest::multipart::Part::bytes(image_bytes).file_name(upload_filename.clone()),
-                )
+                .part("assetData", asset_part)
                 .text("deviceId", device_id)
                 .text("deviceAssetId", device_asset_id)
                 .text("fileCreatedAt", file_created_at)
@@ -2219,6 +2224,7 @@ async fn export_and_upload_to_immich(
             if !resp.status().is_success() {
                 let status = resp.status();
                 let txt = resp.text().await.unwrap_or_default();
+                log::error!("Immich upload failed {} - {}", status, txt);
                 return Err(format!("Immich upload failed: {} - {}", status, txt));
             }
 
@@ -2227,9 +2233,10 @@ async fn export_and_upload_to_immich(
         .await;
 
         if let Err(e) = processing_result {
+            log::error!("Immich upload failed: {}", e);
             let _ = app_handle.emit("export-error", e);
         } else {
-            let _ = app_handle.emit("immich-upload-complete", ());
+            let _ = app_handle.emit("export-complete", ());
         }
 
         *app_handle

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { Save, CheckCircle, XCircle, Loader, Ban, Cloud } from 'lucide-react';
+import { Save, Cloud, CheckCircle, XCircle, Loader, Ban } from 'lucide-react';
 import debounce from 'lodash.debounce';
 import Switch from '../../ui/Switch';
 import Button from '../../ui/Button';
@@ -239,6 +239,7 @@ export default function ExportPanel({
   const [estimatedSize, setEstimatedSize] = useState<number | null>(null);
   const [isEstimating, setIsEstimating] = useState<boolean>(false);
   const [watermarkImageAspectRatio, setWatermarkImageAspectRatio] = useState(1);
+  const [useImmichExport, setUseImmichExport] = useState(false);
   const filenameInputRef = useRef<HTMLInputElement>(null);
 
   const { status, progress, errorMessage } = exportState;
@@ -391,6 +392,11 @@ export default function ExportPanel({
       return;
     }
 
+    if (useImmichExport) {
+      await handleExportToImmich();
+      return;
+    }
+
     let finalFilenameTemplate = filenameTemplate;
     if (isBatchMode && !filenameTemplate.includes('{sequence}') && !filenameTemplate.includes('{original_filename}')) {
       finalFilenameTemplate = `${filenameTemplate}_{sequence}`;
@@ -514,7 +520,6 @@ export default function ExportPanel({
         jsAdjustments: adjustments,
         exportSettings,
       });
-      setExportState({ status: Status.Success, progress: { current: 1, total: 1 }, errorMessage: '' });
     } catch (err) {
       console.error('Failed to export to Immich:', err);
       setExportState({ status: Status.Error, progress: { current: 0, total: 1 }, errorMessage: String(err) });
@@ -522,8 +527,16 @@ export default function ExportPanel({
   };
 
   const canExport = numImages > 0;
+  const canExportToImmich = !!isEditorContext && !!appSettings?.immichUrl && !!appSettings?.immichApiKey;
   const isLut = fileFormat === FileFormats.Cube;
+  const canRunExport = useImmichExport ? canExport && canExportToImmich : canExport;
   const itemLabel = isLut ? 'LUT' : 'Image';
+
+  useEffect(() => {
+    if (!canExportToImmich || isLut) {
+      setUseImmichExport(false);
+    }
+  }, [canExportToImmich, isLut]);
 
   return (
     <div className="flex flex-col h-full">
@@ -567,6 +580,14 @@ export default function ExportPanel({
                     value={jpegQuality}
                   />
                 </div>
+              )}
+              {!isLut && !isBatchMode && canExportToImmich && (
+                <Switch
+                  label="Upload to Immich"
+                  checked={useImmichExport}
+                  onChange={setUseImmichExport}
+                  disabled={isExporting}
+                />
               )}
             </Section>
 
@@ -766,7 +787,7 @@ export default function ExportPanel({
                     ? 'bg-yellow-500/20 text-yellow-400 shadow-none'
                     : ''
           }`}
-          disabled={status === Status.Exporting ? false : !canExport}
+          disabled={status === Status.Exporting ? false : !canRunExport}
           onClick={status === Status.Exporting ? handleCancel : handleExport}
           size="lg"
         >
@@ -795,21 +816,12 @@ export default function ExportPanel({
             </>
           ) : (
             <>
-              <Save size={18} className="mr-2" /> Export {numImages > 1 ? `${numImages} ${itemLabel}s` : itemLabel}
+              {useImmichExport ? <Cloud size={18} className="mr-2" /> : <Save size={18} className="mr-2" />}
+              {useImmichExport
+                ? 'Export & Upload'
+                : `Export ${numImages > 1 ? `${numImages} ${itemLabel}s` : itemLabel}`}
             </>
           )}
-        </Button>
-        <Button
-          className={`group rounded-md h-11 w-full flex items-center text-md !font-bold justify-center mt-2 bg-sky-600/80 hover:bg-sky-600 text-white`}
-          disabled={
-            !isEditorContext || isExporting || !appSettings || !appSettings.immichUrl || !appSettings.immichApiKey
-          }
-          onClick={handleExportToImmich}
-          size="lg"
-        >
-          <>
-            <Cloud size={18} className="mr-2" /> Export to Immich
-          </>
         </Button>
       </div>
     </div>
