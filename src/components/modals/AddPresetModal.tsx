@@ -54,7 +54,7 @@ export default function AddPresetModal({ isOpen, onClose, onSave }: PresetModalP
     <div
       className={`
         fixed inset-0 flex items-center justify-center z-50 
-        bg-black/30 backdrop-blur-sm 
+        bg-black/30 backdrop-blur-xs 
         transition-opacity duration-300 ease-in-out
         ${show ? 'opacity-100' : 'opacity-0'}
       `}
@@ -75,7 +75,7 @@ export default function AddPresetModal({ isOpen, onClose, onSave }: PresetModalP
         </Text>
         <input
           autoFocus
-          className="w-full bg-bg-primary text-text-primary border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent"
+          className="w-full bg-bg-primary text-text-primary border border-border rounded-md px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-accent"
           onChange={(e: any) => setName(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Enter preset name..."

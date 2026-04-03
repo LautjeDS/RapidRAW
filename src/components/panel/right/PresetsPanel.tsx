@@ -96,7 +96,7 @@ const itemVariants = {
 function PresetItemDisplay({ preset, previewUrl, isGeneratingPreviews }: PresetItemDisplayProps) {
   return (
     <div className="flex items-center gap-2 p-2 rounded-lg bg-surface cursor-grabbing">
-      <div className="w-20 h-14 bg-bg-tertiary rounded-md flex items-center justify-center flex-shrink-0">
+      <div className="w-20 h-14 bg-bg-tertiary rounded-md flex items-center justify-center shrink-0">
         {isGeneratingPreviews && !previewUrl ? (
           <Loader2 size={20} className="animate-spin text-text-secondary" />
         ) : previewUrl ? (
@@ -105,7 +105,7 @@ function PresetItemDisplay({ preset, previewUrl, isGeneratingPreviews }: PresetI
           <Loader2 size={20} className="animate-spin text-text-secondary" />
         )}
       </div>
-      <div className="flex-grow min-w-0">
+      <div className="grow min-w-0">
         <p className="font-medium truncate">{preset.name}</p>
       </div>
     </div>
@@ -118,7 +118,7 @@ function FolderItemDisplay({ folder }: FolderProps) {
       <div className="p-1">
         <FolderIcon size={18} />
       </div>
-      <p className="font-normal flex-grow truncate select-none">{folder.name}</p>
+      <p className="font-normal grow truncate select-none">{folder.name}</p>
       <span className="text-text-secondary text-sm ml-auto pr-1">{folder.children?.length || 0}</span>
     </div>
   );
@@ -230,7 +230,7 @@ function DroppableFolderItem({ folder, onContextMenu, children, onToggle, isExpa
             />
           )}
         </div>
-        <p className="font-normal flex-grow truncate select-none" onClick={() => onToggle(folder.id)}>
+        <p className="font-normal grow truncate select-none" onClick={() => onToggle(folder.id)}>
           {folder.name}
         </p>
         <span className="text-text-secondary text-sm ml-auto pr-1">{folder.children?.length || 0}</span>
@@ -817,7 +817,7 @@ export default function PresetsPanel({
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex flex-col h-full">
-        <div className="p-4 flex justify-between items-center flex-shrink-0 border-b border-surface">
+        <div className="p-4 flex justify-between items-center shrink-0 border-b border-surface">
           <h2 className="text-xl font-bold text-primary text-shadow-shiny">Presets</h2>
           <div className="flex items-center gap-1">
             <button
@@ -855,7 +855,7 @@ export default function PresetsPanel({
         </div>
 
         <div
-          className={`flex-grow overflow-y-auto p-4 space-y-2 rounded-lg transition-colors ${
+          className={`grow overflow-y-auto p-4 space-y-2 rounded-lg transition-colors ${
             isRootOver ? 'bg-surface-hover' : ''
           }`}
           onContextMenu={handleBackgroundContextMenu}

@@ -594,7 +594,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
   }, [panningImage, thumbnailDrag, activeLayout, previewSize, spacing, loadedImages, imageStates, hoveredCellIndex]);
 
   const renderControls = () => (
-    <div className="w-80 flex-shrink-0 bg-bg-secondary p-4 flex flex-col gap-8 overflow-y-auto border-l border-surface h-full">
+    <div className="w-80 shrink-0 bg-bg-secondary p-4 flex flex-col gap-8 overflow-y-auto border-l border-surface h-full">
       {loadedImages.length > 1 && (
         <div>
           <Text variant={TextVariants.heading} className="mb-2 flex items-center justify-between">
@@ -710,7 +710,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
             type="color"
             value={backgroundColor}
             onChange={(e) => setBackgroundColor(e.target.value)}
-            className="w-8 h-8 p-0 border-none rounded cursor-pointer bg-transparent"
+            className="w-8 h-8 p-0 border-none rounded-sm cursor-pointer bg-transparent"
           />
           <input
             type="text"
@@ -777,7 +777,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1.1, opacity: 1 }}
               exit={{ scale: 0.8, opacity: 0 }}
-              className="fixed pointer-events-none z-[9999] shadow-2xl rounded-lg overflow-hidden border-2 border-accent ring-4 ring-black/10"
+              className="fixed pointer-events-none z-9999 shadow-2xl rounded-lg overflow-hidden border-2 border-accent ring-4 ring-black/10"
               style={{
                 left: thumbnailDrag.x,
                 top: thumbnailDrag.y,
@@ -792,8 +792,8 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
           )}
         </AnimatePresence>
 
-        <div className="flex-grow flex flex-col min-w-0 h-full bg-bg-secondary">
-          <div ref={previewContainerRef} className="flex-grow flex items-center justify-center p-4 relative min-h-0">
+        <div className="grow flex flex-col min-w-0 h-full bg-bg-secondary">
+          <div ref={previewContainerRef} className="grow flex items-center justify-center p-4 relative min-h-0">
             {isLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
                 <Loader2 className="w-12 h-12 text-accent animate-spin" />
@@ -849,7 +849,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
             </div>
           </div>
 
-          <div className="h-28 flex-shrink-0 border-t border-surface bg-bg-primary/50 flex items-center px-4 gap-3 overflow-x-auto z-20 select-none">
+          <div className="h-28 shrink-0 border-t border-surface bg-bg-primary/50 flex items-center px-4 gap-3 overflow-x-auto z-20 select-none">
             {sourceImages.map((sourceImg, idx) => {
               const loadedData = loadedImages.find((l) => l.path === sourceImg.path);
               if (!loadedData) return null;
@@ -865,7 +865,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
                     src={loadedData.url}
                     alt=""
                     onMouseDown={(e) => handleThumbnailMouseDown(e, sourceImg.path, loadedData.url)}
-                    className="h-20 w-20 flex-shrink-0 object-cover rounded-md cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-accent transition-all select-none shadow-sm"
+                    className="h-20 w-20 shrink-0 object-cover rounded-md cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-accent transition-all select-none shadow-xs"
                   />
                 </motion.div>
               );
@@ -881,7 +881,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
 
   return (
     <div
-      className={`fixed inset-0 flex items-center justify-center z-50 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${show ? 'opacity-100' : 'opacity-0'}`}
+      className={`fixed inset-0 flex items-center justify-center z-50 bg-black/50 backdrop-blur-xs transition-opacity duration-300 ${show ? 'opacity-100' : 'opacity-0'}`}
       onMouseDown={onClose}
     >
       <AnimatePresence>
@@ -894,8 +894,8 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
             exit={{ scale: 0.95, opacity: 0 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
           >
-            <div className="flex-grow min-h-0 overflow-hidden">{renderContent()}</div>
-            <div className="flex-shrink-0 p-4 flex justify-end gap-3 border-t border-surface bg-bg-secondary">
+            <div className="grow min-h-0 overflow-hidden">{renderContent()}</div>
+            <div className="shrink-0 p-4 flex justify-end gap-3 border-t border-surface bg-bg-secondary">
               <button
                 onClick={onClose}
                 className="px-4 py-2 rounded-md text-text-secondary hover:bg-surface transition-colors"

@@ -18,6 +18,7 @@ interface DenoiseModalProps {
   originalBase64: string | null;
   isProcessing: boolean;
   progressMessage: string | null;
+  aiModelDownloadStatus: string | null;
   isRaw: boolean;
   loadingImageUrl?: string | null;
 }
@@ -188,7 +189,7 @@ const ImageCompare = ({ original, denoised }: { original: string; denoised: stri
           variant={TextVariants.small}
           color={TextColors.white}
           weight={TextWeights.medium}
-          className="absolute top-3 left-3 bg-black/60 backdrop-blur-sm px-2.5 py-1 rounded-md pointer-events-none z-0"
+          className="absolute top-3 left-3 bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded-md pointer-events-none z-0"
         >
           Original
         </Text>
@@ -197,7 +198,7 @@ const ImageCompare = ({ original, denoised }: { original: string; denoised: stri
           variant={TextVariants.small}
           color={TextColors.button}
           weight={TextWeights.medium}
-          className="absolute top-3 right-3 bg-accent/90 backdrop-blur-sm px-2.5 py-1 rounded-md pointer-events-none z-0"
+          className="absolute top-3 right-3 bg-accent/90 backdrop-blur-xs px-2.5 py-1 rounded-md pointer-events-none z-0"
         >
           Denoised
         </Text>
@@ -217,6 +218,7 @@ export default function DenoiseModal({
   originalBase64,
   isProcessing,
   progressMessage,
+  aiModelDownloadStatus,
   isRaw,
   loadingImageUrl,
 }: DenoiseModalProps) {
@@ -228,6 +230,10 @@ export default function DenoiseModal({
   const [savedPath, setSavedPath] = useState<string | null>(null);
 
   const mouseDownTarget = useRef<EventTarget | null>(null);
+
+  const currentStatusText = aiModelDownloadStatus?.includes('NIND')
+    ? `Downloading ${aiModelDownloadStatus}...`
+    : progressMessage || 'Initializing...';
 
   useEffect(() => {
     if (isOpen) {
@@ -328,7 +334,7 @@ export default function DenoiseModal({
     if (isProcessing) {
       return (
         <div className="flex h-[460px] overflow-hidden rounded-lg border border-surface">
-          <div className="w-2/5 relative overflow-hidden flex-shrink-0 bg-[#0a0a0a] flex items-center justify-center">
+          <div className="w-2/5 relative overflow-hidden shrink-0 bg-[#0a0a0a] flex items-center justify-center">
             {loadingImageUrl ? (
               <img src={loadingImageUrl} alt="Selected preview" className="w-full h-full object-cover" />
             ) : (
@@ -345,20 +351,18 @@ export default function DenoiseModal({
               <Text variant={TextVariants.title} className="mb-2 text-center">
                 Denoising in Progress
               </Text>
-              <Text className="text-center font-mono h-6 flex justify-center items-center">
-                {progressMessage || 'Initializing...'}
-              </Text>
+              <Text className="text-center font-mono h-6 flex justify-center items-center">{currentStatusText}</Text>
 
               <div className="mt-8 w-64 relative">
-                <div className="h-1 bg-surface rounded-full overflow-hidden relative w-full shadow-sm">
+                <div className="h-1 bg-surface rounded-full overflow-hidden relative w-full shadow-xs">
                   <motion.div
-                    className="absolute inset-y-0 w-[80%] bg-gradient-to-r from-transparent via-accent to-transparent mix-blend-screen"
+                    className="absolute inset-y-0 w-[80%] bg-linear-to-r from-transparent via-accent to-transparent mix-blend-screen"
                     style={{ filter: 'blur(3px)' }}
                     animate={{ x: ['-150%', '150%'] }}
                     transition={{ repeat: Infinity, duration: 1.5, ease: [0.4, 0, 0.2, 1] }}
                   />
                   <motion.div
-                    className="absolute inset-y-0 w-[40%] bg-gradient-to-r from-transparent via-white/90 to-transparent"
+                    className="absolute inset-y-0 w-[40%] bg-linear-to-r from-transparent via-white/90 to-transparent"
                     style={{ filter: 'blur(1px)' }}
                     animate={{ x: ['-250%', '250%'] }}
                     transition={{ repeat: Infinity, duration: 1.5, ease: [0.4, 0, 0.2, 1] }}
@@ -422,7 +426,7 @@ export default function DenoiseModal({
     return (
       <div className={`w-full flex items-center gap-4 ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
         <div className="flex-1 flex items-center gap-6">
-          <div className="flex flex-col gap-1 w-[280px] mt-2 flex-shrink-0">
+          <div className="flex flex-col gap-1 w-[280px] mt-2 shrink-0">
             <Text variant={TextVariants.body} weight={TextWeights.medium}>
               Method
             </Text>
@@ -449,9 +453,9 @@ export default function DenoiseModal({
           </div>
         </div>
 
-        <div className="h-10 w-px bg-surface flex-shrink-0" />
+        <div className="h-10 w-px bg-surface shrink-0" />
 
-        <div className="flex gap-2 flex-shrink-0">
+        <div className="flex gap-2 shrink-0">
           <button
             onClick={handleClose}
             className="px-4 py-2 rounded-md text-text-secondary hover:bg-card-active transition-colors text-sm"
@@ -485,7 +489,7 @@ export default function DenoiseModal({
 
   return (
     <div
-      className={`fixed inset-0 flex items-center justify-center z-50 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
+      className={`fixed inset-0 flex items-center justify-center z-50 bg-black/40 backdrop-blur-xs transition-opacity duration-300 ease-in-out ${
         show ? 'opacity-100' : 'opacity-0'
       }`}
       onMouseDown={handleBackdropMouseDown}

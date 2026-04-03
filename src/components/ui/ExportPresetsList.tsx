@@ -144,7 +144,7 @@ export default function ExportPresetsList({
             placeholder="Preset Name"
             value={newPresetName}
             onChange={(e) => setNewPresetName(e.target.value)}
-            className="flex-grow bg-bg-primary border border-surface rounded-md p-2 text-sm text-text-primary focus:ring-accent focus:border-accent"
+            className="grow bg-bg-primary border border-surface rounded-md p-2 text-sm text-text-primary focus:ring-accent focus:border-accent"
             onKeyDown={(e) => e.key === 'Enter' && handleSavePreset()}
           />
           <button

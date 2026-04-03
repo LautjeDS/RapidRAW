@@ -76,7 +76,7 @@ const ColorSwatch = ({ color, name, isActive, onClick }: ColorSwatchProps) => {
   return (
     <button
       aria-label={`Select ${name} color`}
-      className="relative w-6 h-6 focus:outline-none group"
+      className="relative w-6 h-6 focus:outline-hidden group"
       onClick={handleClick}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
@@ -346,6 +346,7 @@ export default function ColorPanel({
           onChange={(e: any) => handleGlobalChange(ColorAdjustment.Temperature, e.target.value)}
           step={1}
           value={adjustments.temperature || 0}
+          trackClassName='temperature-gradient-track'
           onDragStateChange={onDragStateChange}
         />
         <Slider
@@ -355,6 +356,7 @@ export default function ColorPanel({
           onChange={(e: any) => handleGlobalChange(ColorAdjustment.Tint, e.target.value)}
           step={1}
           value={adjustments.tint || 0}
+          trackClassName='tint-gradient-track'
           onDragStateChange={onDragStateChange}
         />
       </div>

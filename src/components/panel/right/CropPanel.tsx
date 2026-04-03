@@ -458,7 +458,7 @@ export default function CropPanel({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 flex justify-between items-center flex-shrink-0 border-b border-surface">
+      <div className="p-4 flex justify-between items-center shrink-0 border-b border-surface">
         <h2 className="text-xl font-bold text-primary text-shadow-shiny">Crop & Transform</h2>
         <button
           className="p-2 rounded-full hover:bg-surface transition-colors"
@@ -469,7 +469,7 @@ export default function CropPanel({
         </button>
       </div>
 
-      <div className="flex-grow overflow-y-auto p-4 text-text-secondary space-y-6">
+      <div className="grow overflow-y-auto p-4 text-text-secondary space-y-6">
         {selectedImage ? (
           <>
             <div className="space-y-4">
@@ -554,7 +554,7 @@ export default function CropPanel({
                       type="number"
                       value={customW}
                     />
-                    <X size={16} className="text-text-tertiary flex-shrink-0" />
+                    <X size={16} className="text-text-tertiary shrink-0" />
                     <input
                       className="w-full bg-bg-primary text-center rounded-md p-1 border border-surface focus:border-accent focus:ring-accent"
                       min="0"

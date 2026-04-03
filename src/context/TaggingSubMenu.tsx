@@ -98,7 +98,7 @@ export default function TaggingSubMenu({
                   exit="exit"
                   onClick={() => handleRemoveTag(tagItem)}
                   data-tooltip={`Remove tag "${tagItem.tag}"`}
-                  className="flex items-center gap-1 bg-bg-primary text-text-primary text-xs font-medium px-2 py-1 rounded group cursor-pointer"
+                  className="flex items-center gap-1 bg-bg-primary text-text-primary text-xs font-medium px-2 py-1 rounded-sm group cursor-pointer"
                 >
                   <span>{tagItem.tag}</span>
                   <span className="rounded-full group-hover:bg-black/20 p-0.5 transition-colors">
@@ -130,7 +130,7 @@ export default function TaggingSubMenu({
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleInputKeyDown}
           placeholder="Add a tag..."
-          className="w-full bg-surface border border-border-color rounded-md pl-2 pr-8 py-1.5 text-sm focus:outline-none"
+          className="w-full bg-surface border border-border-color rounded-md pl-2 pr-8 py-1.5 text-sm focus:outline-hidden"
         />
         <button
           onClick={() => handleAddTag(inputValue)}
@@ -149,7 +149,7 @@ export default function TaggingSubMenu({
               <button
                 key={shortcut}
                 onClick={() => handleAddTag(shortcut)}
-                className="bg-surface text-text-secondary hover:bg-card-active hover:text-text-primary text-xs font-medium px-2 py-1 rounded"
+                className="bg-surface text-text-secondary hover:bg-card-active hover:text-text-primary text-xs font-medium px-2 py-1 rounded-sm"
               >
                 {shortcut}
               </button>

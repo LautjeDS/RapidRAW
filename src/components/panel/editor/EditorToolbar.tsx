@@ -327,10 +327,10 @@ const EditorToolbar = memo(
     const isExpanded = isInfoHovered && (hasExif || isLoading);
 
     return (
-      <div className="relative flex-shrink-0 flex items-center justify-between px-4 h-14 gap-4 z-40">
-        <div className="flex items-center gap-2 flex-shrink-0 z-40">
+      <div className="relative shrink-0 flex items-center justify-between px-4 h-14 gap-4 z-40">
+        <div className="flex items-center gap-2 shrink-0 z-40">
           <button
-            className="bg-surface text-text-primary p-2 rounded-full hover:bg-card-active transition-colors flex-shrink-0"
+            className="bg-surface text-text-primary p-2 rounded-full hover:bg-card-active transition-colors shrink-0"
             onClick={onBackToLibrary}
             onKeyDown={handleButtonKeyDown}
             data-tooltip="Back to Library"
@@ -359,7 +359,7 @@ const EditorToolbar = memo(
             className={clsx(
               'bg-surface flex flex-col items-center overflow-hidden transition-all duration-200 ease-out pt-2',
               isExpanded
-                ? 'h-[4.5rem] px-8 rounded-2xl absolute min-w-[340px] whitespace-nowrap shadow-2xl shadow-black/50'
+                ? 'h-18 px-8 rounded-2xl absolute min-w-[340px] whitespace-nowrap shadow-2xl shadow-black/50'
                 : 'h-9 px-4 rounded-[18px] absolute min-w-0 w-auto max-w-full shadow-none',
             )}
             onMouseEnter={() => setIsInfoHovered(true)}
@@ -388,7 +388,7 @@ const EditorToolbar = memo(
                   variant={TextVariants.small}
                   color={TextColors.accent}
                   weight={TextWeights.bold}
-                  className="ml-2 flex-shrink-0 bg-accent/20 px-2 py-0.5 rounded-full flex items-center overflow-hidden cursor-default"
+                  className="ml-2 shrink-0 bg-accent/20 px-2 py-0.5 rounded-full flex items-center overflow-hidden cursor-default"
                   onMouseEnter={() => setIsVcHovered(true)}
                   onMouseLeave={() => setIsVcHovered(false)}
                 >
@@ -406,8 +406,8 @@ const EditorToolbar = memo(
 
               <div
                 className={clsx(
-                  'transition-all duration-300 ease-out overflow-hidden whitespace-nowrap flex-shrink-0',
-                  showResolution ? 'max-w-[10rem] opacity-100 ml-2' : 'max-w-0 opacity-0 ml-0',
+                  'transition-all duration-300 ease-out overflow-hidden whitespace-nowrap shrink-0',
+                  showResolution ? 'max-w-40 opacity-100 ml-2' : 'max-w-0 opacity-0 ml-0',
                 )}
               >
                 <Text
@@ -424,8 +424,8 @@ const EditorToolbar = memo(
 
               <div
                 className={clsx(
-                  'overflow-hidden flex-shrink-0',
-                  isLoaderVisible ? 'max-w-[1rem] opacity-100 ml-2' : 'max-w-0 opacity-0 ml-0',
+                  'overflow-hidden shrink-0',
+                  isLoaderVisible ? 'max-w-4 opacity-100 ml-2' : 'max-w-0 opacity-0 ml-0',
                   disableLoaderTransition ? 'transition-none' : 'transition-all duration-300',
                 )}
               >
@@ -435,7 +435,7 @@ const EditorToolbar = memo(
 
             <div
               className={clsx(
-                'relative mt-2 w-full flex-grow justify-center border-t border-text-secondary/10 pt-2 transition-opacity duration-200',
+                'relative mt-2 w-full grow justify-center border-t border-text-secondary/10 pt-2 transition-opacity duration-200',
                 isExpanded ? 'opacity-100 delay-75' : 'opacity-0 hidden',
                 hasExif && 'cursor-pointer',
               )}
@@ -520,7 +520,7 @@ const EditorToolbar = memo(
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0 z-40">
+        <div className="flex items-center gap-2 shrink-0 z-40">
           <div className="relative flex items-center gap-2" ref={historyButtonRef}>
             <button
               className="bg-surface text-text-primary p-2 rounded-full hover:bg-card-active transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -594,7 +594,7 @@ const EditorToolbar = memo(
                             variant={TextVariants.small}
                             color={textColor}
                             weight={textWeight}
-                            className="opacity-50 flex-shrink-0"
+                            className="opacity-50 shrink-0"
                           >
                             {i === 0 ? '' : i}
                           </Text>

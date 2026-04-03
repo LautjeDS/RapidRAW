@@ -196,8 +196,8 @@ export default function NegativeConversionModal({
   };
 
   const renderControls = () => (
-    <div className="w-80 flex-shrink-0 bg-bg-secondary flex flex-col border-l border-surface h-full z-10">
-      <div className="p-4 flex justify-between items-center flex-shrink-0 border-b border-surface">
+    <div className="w-80 shrink-0 bg-bg-secondary flex flex-col border-l border-surface h-full z-10">
+      <div className="p-4 flex justify-between items-center shrink-0 border-b border-surface">
         <Text variant={TextVariants.title}>Negative Conversion</Text>
         <button
           onClick={() => {
@@ -212,7 +212,7 @@ export default function NegativeConversionModal({
         </button>
       </div>
 
-      <div className="flex-grow overflow-y-auto p-4 flex flex-col gap-8">
+      <div className="grow overflow-y-auto p-4 flex flex-col gap-8">
         <div
           className={clsx('transition-opacity duration-200', isSaving && 'opacity-50 pointer-events-none grayscale')}
         >
@@ -284,7 +284,7 @@ export default function NegativeConversionModal({
             variant={TextVariants.small}
             className="p-3 bg-surface rounded-md border border-surface flex items-center gap-3"
           >
-            <Info size={16} className="flex-shrink-0" />
+            <Info size={16} className="shrink-0" />
             <div className="text-xs text-text-tertiary leading-tight space-y-1">
               <p>
                 Inversion logic inspired by{' '}
@@ -316,7 +316,7 @@ export default function NegativeConversionModal({
 
   const renderContent = () => (
     <div className="flex flex-row h-full w-full overflow-hidden">
-      <div className="flex-grow flex flex-col relative min-h-0 bg-[#0f0f0f] overflow-hidden">
+      <div className="grow flex flex-col relative min-h-0 bg-[#0f0f0f] overflow-hidden">
         <div
           ref={containerRef}
           className="flex-1 relative overflow-hidden cursor-grab active:cursor-grabbing select-none"
@@ -350,7 +350,7 @@ export default function NegativeConversionModal({
                       as="div"
                       variant={TextVariants.small}
                       color={TextColors.button}
-                      className="absolute top-4 left-4 bg-accent px-2 py-1 rounded shadow-lg z-20"
+                      className="absolute top-4 left-4 bg-accent px-2 py-1 rounded-sm shadow-lg z-20"
                     >
                       Original Negative
                     </Text>
@@ -416,7 +416,7 @@ export default function NegativeConversionModal({
   return (
     <div
       className={clsx(
-        'fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity duration-300',
+        'fixed inset-0 z-100 flex items-center justify-center bg-black/50 backdrop-blur-xs transition-opacity duration-300',
         show ? 'opacity-100' : 'opacity-0',
       )}
       onMouseDown={onClose}
@@ -431,9 +431,9 @@ export default function NegativeConversionModal({
             className="bg-surface rounded-lg shadow-xl w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="flex-grow min-h-0 overflow-hidden">{renderContent()}</div>
+            <div className="grow min-h-0 overflow-hidden">{renderContent()}</div>
 
-            <div className="flex-shrink-0 p-4 flex justify-end gap-3 border-t border-surface bg-bg-secondary z-20">
+            <div className="shrink-0 p-4 flex justify-end gap-3 border-t border-surface bg-bg-secondary z-20">
               <button
                 disabled={isSaving}
                 onClick={onClose}

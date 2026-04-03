@@ -150,8 +150,8 @@ export default function GlobalTooltip() {
           transition={{ duration: 0.15, ease: 'easeOut' }}
           style={{ top: tooltip.y, left: tooltip.x }}
           className={clsx(
-            'fixed z-[100] pointer-events-none',
-            'bg-surface/80 backdrop-blur-sm text-text-primary',
+            'fixed z-100 pointer-events-none',
+            'bg-surface/80 backdrop-blur-xs text-text-primary',
             'border border-text-secondary/10 shadow-xl rounded-md',
             'px-2.5 py-1.5 text-xs font-medium whitespace-nowrap',
             tooltip.isAbove && '-translate-y-full'

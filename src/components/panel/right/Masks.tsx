@@ -1,5 +1,6 @@
 import {
   Brush,
+  BringToFront,
   Circle,
   Cloud,
   Droplet,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 
 export enum Mask {
+  AiDepth = 'ai-depth',
   AiForeground = 'ai-foreground',
   AiSky = 'ai-sky',
   AiSubject = 'ai-subject',
@@ -50,13 +52,29 @@ export interface SubMask {
   id: string;
   invert: boolean;
   mode: SubMaskMode;
+  name?: string;
   opacity: number;
   parameters?: any;
   type: Mask;
   visible: boolean;
 }
 
+export function formatMaskTypeName(type: string) {
+  if (type === Mask.AiDepth) return 'Depth';
+  if (type === Mask.AiSubject) return 'Subject';
+  if (type === Mask.AiForeground) return 'Foreground';
+  if (type === Mask.AiSky) return 'Sky';
+  if (type === Mask.All) return 'Whole Image';
+  if (type === Mask.QuickEraser) return 'Quick Eraser';
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+export function getSubMaskName(subMask: Pick<SubMask, 'name' | 'type'>) {
+  return subMask.name?.trim() || formatMaskTypeName(subMask.type);
+}
+
 export const MASK_ICON_MAP: Record<Mask, any> = {
+  [Mask.AiDepth]: BringToFront,
   [Mask.AiForeground]: User,
   [Mask.AiSky]: Cloud,
   [Mask.AiSubject]: Sparkles,
@@ -189,6 +207,12 @@ export const SUB_MASK_COMPONENT_TYPES: Array<MaskType> = [
 ];
 
 export const OTHERS_MASK_TYPES: Array<MaskType> = [
+  {
+    disabled: false,
+    icon: BringToFront,
+    name: 'Depth',
+    type: Mask.AiDepth,
+  },
   {
     disabled: false,
     icon: Droplet,

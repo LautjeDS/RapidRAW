@@ -12,8 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -30,8 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -50,4 +46,4 @@ jobs:
 
       - name: Clippy
         working-directory: src-tauri
-        run: cargo clippy -p RapidRAW --all-targets -- -W clippy::all
+        run: cargo clippy --all-targets --all-features -- -D warnings

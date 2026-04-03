@@ -23,7 +23,7 @@ const Slider = ({
   min,
   onChange,
   onDragStateChange = () => {},
-  step,
+  step = 1,
   value,
   trackClassName,
 }: SliderProps) => {
@@ -55,6 +55,13 @@ const Slider = ({
     },
     [min, max, step, decimalPlaces],
   );
+
+  const onChangeRef = useRef(onChange);
+  const snapToStepRef = useRef(snapToStep);
+  const rangeRef = useRef({ min, max });
+  onChangeRef.current = onChange;
+  snapToStepRef.current = snapToStep;
+  rangeRef.current = { min, max };
 
   useEffect(() => {
     onDragStateChange(isDragging);
@@ -114,18 +121,23 @@ const Slider = ({
       }
 
       const deltaX = clientX - lastPointerXRef.current;
-      lastPointerXRef.current = clientX;
+      const { min: curMin, max: curMax } = rangeRef.current;
 
       const multiplier = shiftKey ? FINE_ADJUSTMENT_MULTIPLIER : 1;
-      const deltaValue = (deltaX / sliderWidth) * (max - min) * multiplier;
+      const deltaValue = (deltaX / sliderWidth) * (curMax - curMin) * multiplier;
 
-      accumulatedValueRef.current += deltaValue;
-      accumulatedValueRef.current = Math.max(min, Math.min(max, accumulatedValueRef.current));
+      const prevAccumulated = accumulatedValueRef.current;
+      accumulatedValueRef.current = Math.max(curMin, Math.min(curMax, prevAccumulated + deltaValue));
 
-      const snappedValue = snapToStep(accumulatedValueRef.current);
+      const actualDeltaValue = accumulatedValueRef.current - prevAccumulated;
+      if (deltaValue !== 0) {
+        lastPointerXRef.current += deltaX * (actualDeltaValue / deltaValue);
+      }
+
+      const snappedValue = snapToStepRef.current(accumulatedValueRef.current);
 
       setDisplayValue(snappedValue);
-      onChange({ target: { value: snappedValue } });
+      onChangeRef.current({ target: { value: snappedValue } });
     };
 
     const handlePointerUp = () => {
@@ -144,7 +156,7 @@ const Slider = ({
       window.removeEventListener('touchmove', handlePointerMove);
       window.removeEventListener('touchend', handlePointerUp);
     };
-  }, [isDragging, min, max, step, onChange, snapToStep]);
+  }, [isDragging]);
 
   useEffect(() => {
     if (isDragging) {
@@ -335,7 +347,7 @@ const Slider = ({
         <div className="w-12 text-right">
           {isEditing ? (
             <input
-              className="w-full text-sm text-right bg-card-active border border-gray-500 rounded px-1 py-0 outline-none focus:ring-1 focus:ring-blue-500 text-text-primary"
+              className="w-full text-sm text-right bg-card-active border border-gray-500 rounded-sm px-1 py-0 outline-hidden focus:ring-1 focus:ring-blue-500 text-text-primary"
               max={max}
               min={min}
               onBlur={handleInputCommit}

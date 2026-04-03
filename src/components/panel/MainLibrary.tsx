@@ -5,6 +5,8 @@ import { open } from '@tauri-apps/plugin-shell';
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
+  ChevronUp,
   Folder,
   FolderInput,
   Home,
@@ -21,7 +23,6 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { List, useListCallbackRef } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
 import Button from '../ui/Button';
 import SettingsPanel from './SettingsPanel';
 import { ThemeProps, THEMES, DEFAULT_THEME_ID } from '../../utils/themes';
@@ -43,6 +44,14 @@ import { Color, COLOR_LABELS } from '../../utils/adjustments';
 import { ImportState, Status } from '../ui/ExportImportProperties';
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
+
+export interface ColumnWidths {
+  thumbnail: number;
+  name: number;
+  date: number;
+  rating: number;
+  color: number;
+}
 
 interface DropdownMenuProps {
   buttonContent: any;
@@ -79,7 +88,6 @@ interface MainLibraryProps {
   importState: ImportState;
   indexingProgress: Progress;
   isLoading: boolean;
-  isThumbnailsLoading?: boolean;
   isIndexing: boolean;
   isTreeLoading: boolean;
   libraryScrollTop: number;
@@ -97,6 +105,7 @@ interface MainLibraryProps {
   onSettingsChange(settings: AppSettings): Promise<void>;
   onThumbnailAspectRatioChange(aspectRatio: ThumbnailAspectRatio): void;
   onThumbnailSizeChange(size: ThumbnailSize): void;
+  onRequestThumbnails?(paths: string[]): void;
   rootPath: string | null;
   searchCriteria: SearchCriteria;
   setFilterCriteria(criteria: FilterCriteria): void;
@@ -108,8 +117,11 @@ interface MainLibraryProps {
   theme: string;
   thumbnailAspectRatio: ThumbnailAspectRatio;
   thumbnails: Record<string, string>;
+  thumbnailProgress: Progress;
   thumbnailSize: ThumbnailSize;
   onNavigateToCommunity(): void;
+  listColumnWidths: ColumnWidths;
+  setListColumnWidths: React.Dispatch<React.SetStateAction<ColumnWidths>>;
 }
 
 interface SearchInputProps {
@@ -143,6 +155,11 @@ interface ThumbnailProps {
   rating: number;
   tags: Array<string>;
   aspectRatio: ThumbnailAspectRatio;
+}
+
+interface ListItemProps extends ThumbnailProps {
+  modified: number;
+  columnWidths: ColumnWidths;
 }
 
 interface ThumbnailSizeOption {
@@ -200,6 +217,7 @@ const thumbnailSizeOptions: Array<ThumbnailSizeOption> = [
   { id: ThumbnailSize.Small, label: 'Small', size: 160 },
   { id: ThumbnailSize.Medium, label: 'Medium', size: 240 },
   { id: ThumbnailSize.Large, label: 'Large', size: 320 },
+  { id: ThumbnailSize.List, label: 'List', size: 48 },
 ];
 
 const thumbnailAspectRatioOptions: Array<ThumbnailAspectRatioOption> = [
@@ -233,6 +251,118 @@ const groupImagesByFolder = (images: ImageFile[], rootPath: string | null) => {
     images: groups[dir],
   }));
 };
+
+function ListHeader({
+  widths,
+  setWidths,
+  containerRef,
+  sortCriteria,
+  onSortChange,
+}: {
+  widths: ColumnWidths;
+  setWidths: React.Dispatch<React.SetStateAction<ColumnWidths>>;
+  containerRef: React.RefObject<HTMLDivElement>;
+  sortCriteria: SortCriteria;
+  onSortChange: (key: string) => void;
+}) {
+  const handleResize = (e: React.MouseEvent, leftCol: keyof ColumnWidths, rightCol: keyof ColumnWidths) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startLeftWidth = widths[leftCol];
+    const startRightWidth = widths[rightCol];
+    const containerWidth = containerRef.current?.clientWidth || 1000;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaPercent = (deltaX / containerWidth) * 100;
+
+      let newLeft = startLeftWidth + deltaPercent;
+      let newRight = startRightWidth - deltaPercent;
+
+      if (newLeft < 1) {
+        newRight -= 1 - newLeft;
+        newLeft = 1;
+      }
+      if (newRight < 1) {
+        newLeft -= 1 - newRight;
+        newRight = 1;
+      }
+
+      setWidths((prev) => ({
+        ...prev,
+        [leftCol]: newLeft,
+        [rightCol]: newRight,
+      }));
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  const Column = ({
+    title,
+    widthKey,
+    nextKey,
+    sortKey,
+  }: {
+    title: string;
+    widthKey: keyof ColumnWidths;
+    nextKey?: keyof ColumnWidths;
+    sortKey?: string;
+  }) => {
+    const isSorted = sortCriteria.key === sortKey;
+    const isAsc = sortCriteria.order === SortDirection.Ascending;
+
+    return (
+      <div
+        style={{ width: `${widths[widthKey]}%` }}
+        className={`relative flex items-center px-3 h-full select-none ${
+          sortKey ? 'cursor-pointer hover:bg-bg-primary/50 transition-colors' : ''
+        }`}
+        onClick={() => sortKey && onSortChange(sortKey)}
+      >
+        <Text
+          variant={TextVariants.small}
+          weight={TextWeights.semibold}
+          color={isSorted ? TextColors.primary : TextColors.secondary}
+          className="uppercase tracking-wider text-[11px]"
+        >
+          {title}
+        </Text>
+        {isSorted && (
+          <span className="ml-1 flex items-center text-accent">
+            {isAsc ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </span>
+        )}
+        {nextKey && (
+          <div
+            className="absolute right-[-3px] top-1.5 bottom-1.5 w-[6px] cursor-col-resize z-10 group flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => handleResize(e, widthKey, nextKey)}
+          >
+            <div className="w-px h-full bg-border-color/40 group-hover:bg-accent transition-colors" />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex items-center w-full h-9 bg-bg-secondary/80 backdrop-blur-sm border-b border-border-color/50 shrink-0">
+      <Column title="" widthKey="thumbnail" nextKey="name" />
+      <Column title="Name" widthKey="name" nextKey="date" sortKey="name" />
+      <Column title="Modified" widthKey="date" nextKey="rating" sortKey="date" />
+      <Column title="Rating" widthKey="rating" nextKey="color" sortKey="rating" />
+      <Column title="Label" widthKey="color" />
+    </div>
+  );
+}
 
 function SearchInput({ indexingProgress, isIndexing, searchCriteria, setSearchCriteria }: SearchInputProps) {
   const [isSearchActive, setIsSearchActive] = useState(false);
@@ -342,7 +472,7 @@ function SearchInput({ indexingProgress, isIndexing, searchCriteria, setSearchCr
       onClick={() => inputRef.current?.focus()}
     >
       <button
-        className="absolute left-0 top-0 h-12 w-12 flex items-center justify-center text-text-primary z-10 flex-shrink-0"
+        className="absolute left-0 top-0 h-12 w-12 flex items-center justify-center text-text-primary z-10 shrink-0"
         onClick={(e) => {
           e.stopPropagation();
           if (!isActive) {
@@ -367,7 +497,7 @@ function SearchInput({ indexingProgress, isIndexing, searchCriteria, setSearchCr
               initial={{ opacity: 0, scale: 0.5 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.5 }}
-              className="flex items-center gap-1 bg-bg-primary px-2 py-1 rounded group cursor-pointer flex-shrink-0"
+              className="flex items-center gap-1 bg-bg-primary px-2 py-1 rounded-sm group cursor-pointer shrink-0"
               onClick={(e) => {
                 e.stopPropagation();
                 removeTag(tag);
@@ -382,7 +512,7 @@ function SearchInput({ indexingProgress, isIndexing, searchCriteria, setSearchCr
             </motion.div>
           ))}
           <input
-            className="flex-grow w-full h-full bg-transparent text-text-primary placeholder-text-secondary border-none focus:outline-none"
+            className="grow w-full h-full bg-transparent text-text-primary placeholder-text-secondary border-none focus:outline-hidden"
             disabled={isIndexing}
             onBlur={() => {
               if (tags.length === 0 && !text) {
@@ -411,7 +541,7 @@ function SearchInput({ indexingProgress, isIndexing, searchCriteria, setSearchCr
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.15 }}
-              className="flex-shrink-0 bg-bg-primary px-2 py-1 rounded-md whitespace-nowrap"
+              className="shrink-0 bg-bg-primary px-2 py-1 rounded-md whitespace-nowrap"
             >
               <Text variant={TextVariants.small}>
                 Separate tags with <kbd className="font-sans font-semibold">,</kbd>
@@ -423,7 +553,7 @@ function SearchInput({ indexingProgress, isIndexing, searchCriteria, setSearchCr
         {tags.length > 0 && (
           <button
             onClick={toggleMode}
-            className="p-1.5 rounded-md hover:bg-bg-primary w-10 flex-shrink-0"
+            className="p-1.5 rounded-md hover:bg-bg-primary w-10 shrink-0"
             data-tooltip={`Match ${mode === 'AND' ? 'ALL' : 'ANY'} tags`}
           >
             <Text variant={TextVariants.small} color={TextColors.primary} weight={TextWeights.semibold}>
@@ -434,14 +564,14 @@ function SearchInput({ indexingProgress, isIndexing, searchCriteria, setSearchCr
         {(tags.length > 0 || text) && !isIndexing && (
           <button
             onClick={clearSearch}
-            className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-primary flex-shrink-0"
+            className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-primary shrink-0"
             data-tooltip="Clear search"
           >
             <X className="h-5 w-5" />
           </button>
         )}
         {isIndexing && (
-          <div className="flex items-center pr-1 pointer-events-none flex-shrink-0">
+          <div className="flex items-center pr-1 pointer-events-none shrink-0">
             <Loader2 className="h-5 w-5 text-text-secondary animate-spin" />
           </div>
         )}
@@ -496,7 +626,7 @@ function ColorFilterOptions({ filterCriteria, setFilterCriteria }: FilterOptionP
               key={color.name}
               data-tooltip={title}
               onClick={(e: any) => handleColorClick(color.name, e)}
-              className="w-6 h-6 rounded-full focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface transition-transform hover:scale-110"
+              className="w-6 h-6 rounded-full focus:outline-hidden focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface transition-transform hover:scale-110"
               role="menuitem"
             >
               <div className="relative w-full h-full">
@@ -725,7 +855,7 @@ function SortOptions({ sortCriteria, setSortCriteria, sortOptions }: SortOptions
         <button
           onClick={handleOrderToggle}
           data-tooltip={`Sort ${sortCriteria.order === SortDirection.Ascending ? 'Descending' : 'Ascending'}`}
-          className="absolute top-1/2 right-3 -translate-y-1/2 p-1 bg-transparent border-none text-text-secondary hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-accent rounded"
+          className="absolute top-1/2 right-3 -translate-y-1/2 p-1 bg-transparent border-none text-text-secondary hover:text-text-primary focus:outline-hidden focus:ring-1 focus:ring-accent rounded-sm"
         >
           {sortCriteria.order === SortDirection.Ascending ? (
             <svg
@@ -881,6 +1011,209 @@ function ViewOptionsDropdown({
   );
 }
 
+function ListItem({
+  data,
+  isActive,
+  isSelected,
+  onContextMenu,
+  onImageClick,
+  onImageDoubleClick,
+  onLoad,
+  path,
+  rating,
+  tags,
+  modified,
+  aspectRatio: thumbnailAspectRatio,
+  columnWidths,
+}: ListItemProps) {
+  const [showPlaceholder, setShowPlaceholder] = useState(false);
+  const [layers, setLayers] = useState<ImageLayer[]>([]);
+  const latestThumbDataRef = useRef<string | undefined>(undefined);
+
+  const { baseName, isVirtualCopy } = useMemo(() => {
+    const fullFileName = path.split(/[\\/]/).pop() || '';
+    const parts = fullFileName.split('?vc=');
+    return {
+      baseName: parts[0],
+      isVirtualCopy: parts.length > 1,
+    };
+  }, [path]);
+
+  useEffect(() => {
+    if (data) {
+      setShowPlaceholder(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setShowPlaceholder(true);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [data]);
+
+  useEffect(() => {
+    if (!data) {
+      setLayers([]);
+      latestThumbDataRef.current = undefined;
+      return;
+    }
+
+    if (data !== latestThumbDataRef.current) {
+      latestThumbDataRef.current = data;
+      setLayers((prev) => {
+        if (prev.some((l) => l.id === data)) return prev;
+        return [...prev, { id: data, url: data, opacity: 0 }];
+      });
+    }
+  }, [data]);
+
+  useEffect(() => {
+    const layerToFadeIn = layers.find((l) => l.opacity === 0);
+    if (layerToFadeIn) {
+      const timer = setTimeout(() => {
+        setLayers((prev) => prev.map((l) => (l.id === layerToFadeIn.id ? { ...l, opacity: 1 } : l)));
+        onLoad();
+      }, 10);
+      return () => clearTimeout(timer);
+    }
+  }, [layers, onLoad]);
+
+  const handleTransitionEnd = useCallback((finishedId: string) => {
+    setLayers((prev) => {
+      const finishedIndex = prev.findIndex((l) => l.id === finishedId);
+      if (finishedIndex < 0 || prev.length <= 1) return prev;
+      return prev.slice(finishedIndex);
+    });
+  }, []);
+
+  const colorTag = tags?.find((t: string) => t.startsWith('color:'))?.substring(6);
+  const colorLabel = COLOR_LABELS.find((c: Color) => c.name === colorTag);
+
+  const dateObj = new Date(modified > 1e11 ? modified : modified * 1000);
+  const dateStr =
+    dateObj.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) +
+    ' ' +
+    dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const stateClass = isActive
+    ? 'ring-1 ring-inset ring-accent bg-accent/10'
+    : isSelected
+      ? 'ring-1 ring-inset ring-accent/50 bg-accent/5'
+      : 'hover:bg-surface/80';
+
+  return (
+    <div
+      className={`flex items-center w-full h-full border-b border-border-color/30 cursor-pointer transition-colors duration-150 ${stateClass}`}
+      onClick={(e: any) => {
+        e.stopPropagation();
+        onImageClick(path, e);
+      }}
+      onContextMenu={onContextMenu}
+      onDoubleClick={() => onImageDoubleClick(path)}
+    >
+      <div
+        style={{ width: `${columnWidths.thumbnail}%` }}
+        className="flex items-center justify-center p-1.5 h-full overflow-hidden"
+      >
+        <div className="w-full h-full relative overflow-hidden rounded-sm bg-surface flex items-center justify-center">
+          {layers.length > 0 && (
+            <div className="absolute inset-0 w-full h-full flex items-center justify-center">
+              {layers.map((layer) => (
+                <div
+                  key={layer.id}
+                  className="absolute inset-0 w-full h-full"
+                  style={{ opacity: layer.opacity, transition: 'opacity 300ms ease-in-out' }}
+                  onTransitionEnd={() => handleTransitionEnd(layer.id)}
+                >
+                  {thumbnailAspectRatio === ThumbnailAspectRatio.Contain && (
+                    <img
+                      alt=""
+                      className="absolute inset-0 w-full h-full object-cover blur-md scale-110 brightness-[0.4]"
+                      src={layer.url}
+                    />
+                  )}
+                  <img
+                    alt={baseName}
+                    className={`w-full h-full relative ${
+                      thumbnailAspectRatio === ThumbnailAspectRatio.Contain ? 'object-contain' : 'object-cover'
+                    }`}
+                    decoding="async"
+                    loading="lazy"
+                    src={layer.url}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <AnimatePresence>
+            {layers.length === 0 && showPlaceholder && (
+              <motion.div
+                className="absolute inset-0 w-full h-full flex items-center justify-center"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3, ease: 'easeInOut' }}
+              >
+                <ImageIcon size={14} className="text-text-secondary animate-pulse" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+
+      {/* Name */}
+      <div style={{ width: `${columnWidths.name}%` }} className="flex items-center gap-2 px-3 h-full overflow-hidden">
+        <Text variant={TextVariants.small} className="truncate" weight={TextWeights.medium} color={TextColors.primary}>
+          {baseName}
+        </Text>
+        {isVirtualCopy && (
+          <Text
+            as="div"
+            variant={TextVariants.small}
+            color={TextColors.secondary}
+            weight={TextWeights.bold}
+            className="shrink-0 bg-bg-primary px-1.5 py-0.5 rounded-full leading-none border border-border-color"
+            data-tooltip="Virtual Copy"
+          >
+            VC
+          </Text>
+        )}
+      </div>
+
+      <div style={{ width: `${columnWidths.date}%` }} className="flex items-center px-3 h-full overflow-hidden">
+        <Text variant={TextVariants.small} color={TextColors.secondary} className="truncate">
+          {dateStr}
+        </Text>
+      </div>
+
+      <div style={{ width: `${columnWidths.rating}%` }} className="flex items-center px-3 h-full overflow-hidden">
+        {rating > 0 && (
+          <div className="flex items-center gap-1">
+            <StarIcon size={12} className="text-accent fill-accent" />
+            <Text variant={TextVariants.small} color={TextColors.primary} weight={TextWeights.medium}>
+              {rating}
+            </Text>
+          </div>
+        )}
+      </div>
+
+      <div style={{ width: `${columnWidths.color}%` }} className="flex items-center px-3 h-full overflow-hidden">
+        {colorLabel && (
+          <div className="flex items-center gap-1.5">
+            <div
+              className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/20"
+              style={{ backgroundColor: colorLabel.color }}
+            />
+            <Text variant={TextVariants.small} color={TextColors.secondary} className="capitalize truncate">
+              {colorLabel.name}
+            </Text>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Thumbnail({
   data,
   isActive,
@@ -1025,7 +1358,7 @@ function Thumbnail({
       </AnimatePresence>
 
       {(colorLabel || rating > 0) && (
-        <div className="absolute top-1.5 right-1.5 bg-bg-primary/50 rounded-full px-1.5 py-0.5 flex items-center gap-1 backdrop-blur-sm">
+        <div className="absolute top-1.5 right-1.5 bg-bg-primary/50 rounded-full px-1.5 py-0.5 flex items-center gap-1 backdrop-blur-xs">
           {colorLabel && (
             <div
               className="w-3 h-3 rounded-full ring-1 ring-black/20"
@@ -1043,7 +1376,7 @@ function Thumbnail({
           )}
         </div>
       )}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 flex items-end justify-between">
+      <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/70 to-transparent p-2 flex items-end justify-between">
         <Text variant={TextVariants.small} color={TextColors.white} className="truncate pr-2">
           {baseName}
         </Text>
@@ -1053,7 +1386,7 @@ function Thumbnail({
             variant={TextVariants.small}
             color={TextColors.white}
             weight={TextWeights.bold}
-            className="flex-shrink-0 bg-bg-primary/50 px-1.5 py-0.5 rounded-full backdrop-blur-sm"
+            className="shrink-0 bg-bg-primary/50 px-1.5 py-0.5 rounded-full backdrop-blur-xs"
             data-tooltip="Virtual Copy"
           >
             VC
@@ -1079,8 +1412,11 @@ const Row = ({
   imageRatings,
   rootPath,
   itemWidth,
+  itemHeight,
   outerPadding,
   gap,
+  isListView,
+  columnWidths,
 }: any) => {
   const row = rows[index];
   if (row.type === 'footer') return null;
@@ -1108,18 +1444,18 @@ const Row = ({
           ...shiftedStyle,
           left: 0,
           width: '100%',
-          paddingLeft: outerPadding,
-          paddingRight: outerPadding,
+          paddingLeft: outerPadding === 0 ? 12 : outerPadding,
+          paddingRight: outerPadding === 0 ? 12 : outerPadding,
           boxSizing: 'border-box',
         }}
-        className="flex items-end pb-2"
+        className="flex items-end pb-2 pt-2"
       >
-        <div className="flex items-center gap-2 w-full border-b border-border-color pb-1">
+        <div className="flex items-center gap-2 w-full border-b border-border-color/50 pb-1">
           <FolderOpen size={16} className="text-text-secondary" />
           <Text variant={TextVariants.label} weight={TextWeights.semibold} className="truncate" data-tooltip={row.path}>
             {displayPath}
           </Text>
-          <Text variant={TextVariants.small} className="opacity-60 ml-auto">
+          <Text variant={TextVariants.small} color={TextColors.secondary} className="ml-auto">
             {row.count} images
           </Text>
         </div>
@@ -1133,7 +1469,7 @@ const Row = ({
         ...shiftedStyle,
         left: outerPadding,
         right: outerPadding,
-        width: 'auto',
+        width: isListView ? '100%' : 'auto',
         display: 'flex',
         gap: gap,
       }}
@@ -1142,23 +1478,41 @@ const Row = ({
         <div
           key={imageFile.path}
           style={{
-            width: itemWidth,
-            height: itemWidth,
+            width: isListView ? '100%' : itemWidth,
+            height: itemHeight,
           }}
         >
-          <Thumbnail
-            data={thumbnails[imageFile.path]}
-            isActive={activePath === imageFile.path}
-            isSelected={multiSelectedPaths.includes(imageFile.path)}
-            onContextMenu={(e: any) => onContextMenu(e, imageFile.path)}
-            onImageClick={onImageClick}
-            onImageDoubleClick={onImageDoubleClick}
-            onLoad={() => loadedThumbnails.add(imageFile.path)}
-            path={imageFile.path}
-            rating={imageRatings?.[imageFile.path] || 0}
-            tags={imageFile.tags}
-            aspectRatio={thumbnailAspectRatio}
-          />
+          {isListView ? (
+            <ListItem
+              data={thumbnails[imageFile.path]}
+              isActive={activePath === imageFile.path}
+              isSelected={multiSelectedPaths.includes(imageFile.path)}
+              onContextMenu={(e: any) => onContextMenu(e, imageFile.path)}
+              onImageClick={onImageClick}
+              onImageDoubleClick={onImageDoubleClick}
+              onLoad={() => loadedThumbnails.add(imageFile.path)}
+              path={imageFile.path}
+              rating={imageRatings?.[imageFile.path] || 0}
+              tags={imageFile.tags || []}
+              aspectRatio={thumbnailAspectRatio}
+              modified={imageFile.modified}
+              columnWidths={columnWidths}
+            />
+          ) : (
+            <Thumbnail
+              data={thumbnails[imageFile.path]}
+              isActive={activePath === imageFile.path}
+              isSelected={multiSelectedPaths.includes(imageFile.path)}
+              onContextMenu={(e: any) => onContextMenu(e, imageFile.path)}
+              onImageClick={onImageClick}
+              onImageDoubleClick={onImageDoubleClick}
+              onLoad={() => loadedThumbnails.add(imageFile.path)}
+              path={imageFile.path}
+              rating={imageRatings?.[imageFile.path] || 0}
+              tags={imageFile.tags || []}
+              aspectRatio={thumbnailAspectRatio}
+            />
+          )}
         </div>
       ))}
     </div>
@@ -1177,7 +1531,6 @@ export default function MainLibrary({
   indexingProgress,
   isIndexing,
   isLoading,
-  isThumbnailsLoading,
   isTreeLoading: _isTreeLoading,
   libraryScrollTop,
   libraryViewMode,
@@ -1194,6 +1547,7 @@ export default function MainLibrary({
   onSettingsChange,
   onThumbnailAspectRatioChange,
   onThumbnailSizeChange,
+  onRequestThumbnails,
   rootPath,
   searchCriteria,
   setFilterCriteria,
@@ -1205,18 +1559,58 @@ export default function MainLibrary({
   theme,
   thumbnailAspectRatio,
   thumbnails,
+  thumbnailProgress,
   thumbnailSize,
   onNavigateToCommunity,
+  listColumnWidths,
+  setListColumnWidths,
 }: MainLibraryProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [appVersion, setAppVersion] = useState('');
   const [, setSupportedTypes] = useState<SupportedTypes | null>(null);
   const libraryContainerRef = useRef<HTMLDivElement>(null);
+  const [gridSize, setGridSize] = useState({ height: 0, width: 0 });
+  const gridObserverRef = useRef<ResizeObserver | null>(null);
+  const gridContainerRef = useCallback((el: HTMLDivElement | null) => {
+    if (gridObserverRef.current) {
+      gridObserverRef.current.disconnect();
+      gridObserverRef.current = null;
+    }
+    if (el) {
+      const ro = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (entry) {
+          const { height, width } = entry.contentRect;
+          setGridSize((prev) => (prev.height === height && prev.width === width ? prev : { height, width }));
+        }
+      });
+      ro.observe(el);
+      gridObserverRef.current = ro;
+    }
+  }, []);
   const [listHandle, setListHandle] = useListCallbackRef();
   const [isUpdateAvailable, setIsUpdateAvailable] = useState(false);
   const [latestVersion, setLatestVersion] = useState('');
-  const [isLoaderVisible, setIsLoaderVisible] = useState(false);
+  const [isBusyDelayed, setIsBusyDelayed] = useState(false);
+  const [isProgressHovered, setIsProgressHovered] = useState(false);
   const loadedThumbnailsRef = useRef(new Set<string>());
+
+  const handleHeaderSort = useCallback(
+    (key: string) => {
+      onClearSelection();
+      setSortCriteria((prev) => {
+        if (prev.key === key) {
+          if (prev.order === SortDirection.Ascending) {
+            return { ...prev, order: SortDirection.Descening };
+          } else {
+            return { key: 'name', order: SortDirection.Ascending };
+          }
+        }
+        return { key, order: SortDirection.Ascending };
+      });
+    },
+    [onClearSelection, setSortCriteria],
+  );
 
   const prevScrollState = useRef({
     path: null as string | null,
@@ -1252,17 +1646,95 @@ export default function MainLibrary({
   }, [appSettings?.enableExifReading]);
 
   useEffect(() => {
+    if (!listHandle?.element) return;
+
+    const element = listHandle.element;
+    const clientHeight = element.clientHeight;
+
+    if (activePath && libraryContainerRef.current) {
+      const width = libraryContainerRef.current.clientWidth;
+      if (width > 0 && clientHeight > 0) {
+        const isListView = thumbnailSize === ThumbnailSize.List;
+        const OUTER_PADDING = isListView ? 0 : 12;
+        const ITEM_GAP = isListView ? 0 : 12;
+        const minThumbWidth = thumbnailSizeOptions.find((o) => o.id === thumbnailSize)?.size || 240;
+        const availableWidth = width - OUTER_PADDING * 2;
+        const columnCount = isListView
+          ? 1
+          : Math.max(1, Math.floor((availableWidth + ITEM_GAP) / (minThumbWidth + ITEM_GAP)));
+        const itemWidth = isListView ? availableWidth : (availableWidth - ITEM_GAP * (columnCount - 1)) / columnCount;
+        const listRowHeight = Math.max(36, Math.min(300, (availableWidth * listColumnWidths.thumbnail) / 100));
+        const rowHeight = isListView ? listRowHeight : itemWidth + ITEM_GAP;
+        const headerHeight = 40;
+
+        let targetTop = 0;
+        let found = false;
+
+        if (libraryViewMode === LibraryViewMode.Recursive) {
+          const grps = groupImagesByFolder(imageList, currentFolderPath);
+          for (const group of grps) {
+            if (group.images.length === 0) continue;
+            targetTop += headerHeight;
+            const idx = group.images.findIndex((img) => img.path === activePath);
+            if (idx !== -1) {
+              targetTop += Math.floor(idx / columnCount) * rowHeight;
+              found = true;
+              break;
+            }
+            targetTop += Math.ceil(group.images.length / columnCount) * rowHeight;
+          }
+        } else {
+          const idx = imageList.findIndex((img) => img.path === activePath);
+          if (idx !== -1) {
+            targetTop = Math.floor(idx / columnCount) * rowHeight;
+            found = true;
+          }
+        }
+
+        if (found) {
+          const itemBottom = targetTop + rowHeight;
+          const savedTop = Math.max(0, libraryScrollTop);
+          const isVisibleAtSaved = targetTop < savedTop + clientHeight && itemBottom > savedTop;
+
+          if (isVisibleAtSaved && libraryScrollTop > 0) {
+            element.scrollTop = libraryScrollTop;
+          } else {
+            element.scrollTop = Math.max(0, targetTop - clientHeight / 2 + rowHeight / 2);
+          }
+
+          prevScrollState.current = {
+            path: activePath,
+            top: targetTop,
+            folder: currentFolderPath,
+          };
+          return;
+        }
+      }
+    }
+
+    if (libraryScrollTop > 0) {
+      element.scrollTop = libraryScrollTop;
+    }
+  }, [listHandle]);
+
+  useEffect(() => {
     if (!activePath || !libraryContainerRef.current || multiSelectedPaths.length > 1) return;
 
     const container = libraryContainerRef.current;
     const width = container.clientWidth;
-    const OUTER_PADDING = 12;
-    const ITEM_GAP = 12;
+    const isListView = thumbnailSize === ThumbnailSize.List;
+    const OUTER_PADDING = isListView ? 0 : 12;
+    const ITEM_GAP = isListView ? 0 : 12;
     const minThumbWidth = thumbnailSizeOptions.find((o) => o.id === thumbnailSize)?.size || 240;
+
     const availableWidth = width - OUTER_PADDING * 2;
-    const columnCount = Math.max(1, Math.floor((availableWidth + ITEM_GAP) / (minThumbWidth + ITEM_GAP)));
-    const itemWidth = (availableWidth - ITEM_GAP * (columnCount - 1)) / columnCount;
-    const rowHeight = itemWidth + ITEM_GAP;
+    const columnCount = isListView
+      ? 1
+      : Math.max(1, Math.floor((availableWidth + ITEM_GAP) / (minThumbWidth + ITEM_GAP)));
+    const itemWidth = isListView ? availableWidth : (availableWidth - ITEM_GAP * (columnCount - 1)) / columnCount;
+
+    const listRowHeight = Math.max(36, Math.min(300, (availableWidth * listColumnWidths.thumbnail) / 100));
+    const rowHeight = isListView ? listRowHeight : itemWidth + ITEM_GAP;
     const headerHeight = 40;
 
     let targetTop = 0;
@@ -1327,13 +1799,16 @@ export default function MainLibrary({
         };
       }
     }
-  }, [activePath, imageList, libraryViewMode, thumbnailSize, currentFolderPath, multiSelectedPaths.length, listHandle]);
-
-  useEffect(() => {
-    if (listHandle?.element && libraryScrollTop > 0) {
-      listHandle.element.scrollTop = libraryScrollTop;
-    }
-  }, [listHandle]);
+  }, [
+    activePath,
+    imageList,
+    libraryViewMode,
+    thumbnailSize,
+    currentFolderPath,
+    multiSelectedPaths.length,
+    listHandle,
+    listColumnWidths.thumbnail,
+  ]);
 
   useEffect(() => {
     const exifEnabled = appSettings?.enableExifReading ?? true;
@@ -1345,24 +1820,21 @@ export default function MainLibrary({
     }
   }, [appSettings?.enableExifReading, sortCriteria.key, setSortCriteria]);
 
-  useEffect(() => {
-    let showTimer: number | undefined;
-    let hideTimer: number | undefined;
+  const isBusy =
+    isLoading ||
+    ((thumbnailProgress?.total ?? 0) > 0 && (thumbnailProgress?.current ?? 0) < (thumbnailProgress?.total ?? 0));
 
-    if (isThumbnailsLoading || isLoading) {
-      showTimer = window.setTimeout(() => {
-        setIsLoaderVisible(true);
-      }, 1000);
+  useEffect(() => {
+    let timer: number | undefined;
+
+    if (isBusy) {
+      timer = window.setTimeout(() => setIsBusyDelayed(true), 1000);
     } else {
-      hideTimer = window.setTimeout(() => {
-        setIsLoaderVisible(false);
-      }, 500);
+      timer = window.setTimeout(() => setIsBusyDelayed(false), 500);
     }
-    return () => {
-      clearTimeout(showTimer);
-      clearTimeout(hideTimer);
-    };
-  }, [isThumbnailsLoading, isLoading]);
+
+    return () => clearTimeout(timer);
+  }, [isBusy]);
 
   useEffect(() => {
     const compareVersions = (v1: string, v2: string) => {
@@ -1500,7 +1972,7 @@ export default function MainLibrary({
                 <div className="flex flex-col w-full max-w-xs gap-4">
                   {hasLastPath && (
                     <Button
-                      className="rounded-md h-11 w-full flex justify-start items-center"
+                      className="rounded-md h-11 w-full flex justify-center items-center"
                       onClick={onContinueSession}
                       size="lg"
                     >
@@ -1509,7 +1981,7 @@ export default function MainLibrary({
                   )}
                   <div className="flex items-center gap-2">
                     <Button
-                      className={`rounded-md flex-grow flex justify-start items-center h-11 ${
+                      className={`rounded-md grow flex justify-center items-center h-11 ${
                         hasLastPath ? 'bg-surface text-text-primary shadow-none' : ''
                       }`}
                       onClick={onOpenFolder}
@@ -1601,7 +2073,11 @@ export default function MainLibrary({
       className="flex-1 flex flex-col h-full min-w-0 bg-bg-secondary rounded-lg overflow-hidden"
       ref={libraryContainerRef}
     >
-      <header className="p-4 flex-shrink-0 flex justify-between items-center border-b border-border-color gap-4">
+      <header
+        className="p-4 shrink-0 flex justify-between items-center border-b border-border-color gap-4"
+        onMouseEnter={() => setIsProgressHovered(true)}
+        onMouseLeave={() => setIsProgressHovered(false)}
+      >
         <div className="min-w-0">
           <Text variant={TextVariants.headline}>Library</Text>
           <div className="flex items-center gap-2">
@@ -1611,15 +2087,26 @@ export default function MainLibrary({
               <p className="text-sm invisible select-none pointer-events-none h-5 overflow-hidden"></p>
             )}
             <div
-              className={`overflow-hidden transition-all duration-300 ${
-                isLoaderVisible ? 'max-w-[1rem] opacity-100' : 'max-w-0 opacity-0'
+              className={`flex items-center gap-2 overflow-hidden transition-all duration-300 whitespace-nowrap ${
+                isBusyDelayed ? 'max-w-xs opacity-100' : 'max-w-0 opacity-0'
               }`}
             >
-              <Loader2 size={14} className="animate-spin text-text-secondary" />
+              <Loader2 size={14} className="animate-spin text-text-secondary shrink-0" />
+              <div
+                className={`flex items-center transition-all duration-300 ease-out overflow-hidden ${
+                  isProgressHovered && isBusyDelayed && (thumbnailProgress?.total ?? 0) > 0
+                    ? 'max-w-xs opacity-100'
+                    : 'max-w-0 opacity-0'
+                }`}
+              >
+                <Text variant={TextVariants.small} color={TextColors.secondary} className="whitespace-nowrap">
+                  ({thumbnailProgress?.current ?? 0}/{thumbnailProgress?.total ?? 0})
+                </Text>
+              </div>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-3 shrink-0">
           {importState.status === Status.Importing && (
             <Text as="div" color={TextColors.accent} className="flex items-center gap-2 animate-pulse">
               <FolderInput size={16} />
@@ -1683,17 +2170,30 @@ export default function MainLibrary({
         </div>
       </header>
       {imageList.length > 0 ? (
-        <div className="flex-1 w-full h-full" onClick={onClearSelection} onContextMenu={onEmptyAreaContextMenu}>
-          <AutoSizer>
-            {({ height, width }) => {
-              const OUTER_PADDING = 12;
-              const ITEM_GAP = 12;
+        <div
+          ref={gridContainerRef}
+          className="flex-1 w-full h-full"
+          onClick={onClearSelection}
+          onContextMenu={onEmptyAreaContextMenu}
+        >
+          {gridSize.height > 0 &&
+            gridSize.width > 0 &&
+            (() => {
+              const isListView = thumbnailSize === ThumbnailSize.List;
+              const OUTER_PADDING = isListView ? 0 : 12;
+              const ITEM_GAP = isListView ? 0 : 12;
               const minThumbWidth = thumbnailSizeOptions.find((o) => o.id === thumbnailSize)?.size || 240;
 
-              const availableWidth = width - OUTER_PADDING * 2;
-              const columnCount = Math.max(1, Math.floor((availableWidth + ITEM_GAP) / (minThumbWidth + ITEM_GAP)));
-              const itemWidth = (availableWidth - ITEM_GAP * (columnCount - 1)) / columnCount;
-              const rowHeight = itemWidth + ITEM_GAP;
+              const availableWidth = gridSize.width - OUTER_PADDING * 2;
+              const columnCount = isListView
+                ? 1
+                : Math.max(1, Math.floor((availableWidth + ITEM_GAP) / (minThumbWidth + ITEM_GAP)));
+              const itemWidth = isListView
+                ? availableWidth
+                : (availableWidth - ITEM_GAP * (columnCount - 1)) / columnCount;
+
+              const listRowHeight = Math.max(36, Math.min(300, (availableWidth * listColumnWidths.thumbnail) / 100));
+              const rowHeight = isListView ? listRowHeight : itemWidth + ITEM_GAP;
               const headerHeight = 40;
 
               const rows: any[] = [];
@@ -1725,40 +2225,78 @@ export default function MainLibrary({
               rows.push({ type: 'footer' });
 
               const getItemSize = (index: number) => {
-                if (rows[index].type === 'footer') return OUTER_PADDING;
+                if (rows[index].type === 'footer') return isListView ? 24 : OUTER_PADDING;
                 return rows[index].type === 'header' ? headerHeight : rowHeight;
               };
 
               return (
-                <div key={`${width}-${thumbnailSize}-${libraryViewMode}`} style={{ height, width }}>
-                  <List
-                    listRef={setListHandle}
-                    rowCount={rows.length}
-                    rowHeight={getItemSize}
-                    onScroll={(e: React.UIEvent<HTMLElement>) => setLibraryScrollTop(e.currentTarget.scrollTop)}
-                    className="custom-scrollbar"
-                    rowComponent={Row}
-                    rowProps={{
-                      rows,
-                      activePath,
-                      multiSelectedPaths,
-                      onContextMenu,
-                      onImageClick,
-                      onImageDoubleClick,
-                      thumbnails,
-                      thumbnailAspectRatio,
-                      loadedThumbnails: loadedThumbnailsRef.current,
-                      imageRatings,
-                      rootPath: currentFolderPath,
-                      itemWidth,
-                      outerPadding: OUTER_PADDING,
-                      gap: ITEM_GAP,
+                <div className="flex flex-col w-full h-full">
+                  {isListView && (
+                    <ListHeader
+                      widths={listColumnWidths}
+                      setWidths={setListColumnWidths}
+                      containerRef={libraryContainerRef}
+                      sortCriteria={sortCriteria}
+                      onSortChange={handleHeaderSort}
+                    />
+                  )}
+                  <div
+                    key={`${gridSize.width}-${thumbnailSize}-${libraryViewMode}`}
+                    style={{
+                      height: isListView ? gridSize.height - 36 : gridSize.height,
+                      width: gridSize.width,
                     }}
-                  />
+                  >
+                    <List
+                      listRef={setListHandle}
+                      rowCount={rows.length}
+                      rowHeight={getItemSize}
+                      onScroll={(e: React.UIEvent<HTMLElement>) => setLibraryScrollTop(e.currentTarget.scrollTop)}
+                      onRowsRendered={({ startIndex, stopIndex }) => {
+                        if (!onRequestThumbnails) return;
+                        const pathsToRequest: string[] = [];
+
+                        for (let i = startIndex; i <= stopIndex; i++) {
+                          const row = rows[i];
+                          if (row && row.type === 'images') {
+                            row.images.forEach((img: ImageFile) => {
+                              if (!thumbnails[img.path]) {
+                                pathsToRequest.push(img.path);
+                              }
+                            });
+                          }
+                        }
+
+                        if (pathsToRequest.length > 0) {
+                          onRequestThumbnails(pathsToRequest);
+                        }
+                      }}
+                      className="custom-scrollbar"
+                      rowComponent={Row}
+                      rowProps={{
+                        rows,
+                        activePath,
+                        multiSelectedPaths,
+                        onContextMenu,
+                        onImageClick,
+                        onImageDoubleClick,
+                        thumbnails,
+                        thumbnailAspectRatio,
+                        loadedThumbnails: loadedThumbnailsRef.current,
+                        imageRatings,
+                        rootPath: currentFolderPath,
+                        itemWidth,
+                        itemHeight: isListView ? listRowHeight : itemWidth,
+                        outerPadding: OUTER_PADDING,
+                        gap: ITEM_GAP,
+                        isListView,
+                        columnWidths: listColumnWidths,
+                      }}
+                    />
+                  </div>
                 </div>
               );
-            }}
-          </AutoSizer>
+            })()}
         </div>
       ) : isIndexing || aiModelDownloadStatus || importState.status === Status.Importing ? (
         <div className="flex-1 flex flex-col items-center justify-center" onContextMenu={onEmptyAreaContextMenu}>

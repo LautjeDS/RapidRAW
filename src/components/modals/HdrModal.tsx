@@ -133,7 +133,7 @@ export default function HdrModal({
     if (isProcessing) {
       return (
         <div className="flex h-[460px] overflow-hidden rounded-lg border border-surface">
-          <div className="w-2/5 relative overflow-hidden flex-shrink-0 bg-[#0a0a0a] flex items-center justify-center">
+          <div className="w-2/5 relative overflow-hidden shrink-0 bg-[#0a0a0a] flex items-center justify-center">
             {loadingImageUrl ? (
               <img src={loadingImageUrl} alt="Source preview" className="w-full h-full object-cover" />
             ) : (
@@ -155,15 +155,15 @@ export default function HdrModal({
               </Text>
 
               <div className="mt-8 w-64 relative">
-                <div className="h-1 bg-surface rounded-full overflow-hidden relative w-full shadow-sm">
+                <div className="h-1 bg-surface rounded-full overflow-hidden relative w-full shadow-xs">
                   <motion.div
-                    className="absolute inset-y-0 w-[80%] bg-gradient-to-r from-transparent via-accent to-transparent mix-blend-screen"
+                    className="absolute inset-y-0 w-[80%] bg-linear-to-r from-transparent via-accent to-transparent mix-blend-screen"
                     style={{ filter: 'blur(3px)' }}
                     animate={{ x: ['-150%', '150%'] }}
                     transition={{ repeat: Infinity, duration: 1.5, ease: [0.4, 0, 0.2, 1] }}
                   />
                   <motion.div
-                    className="absolute inset-y-0 w-[40%] bg-gradient-to-r from-transparent via-white/90 to-transparent"
+                    className="absolute inset-y-0 w-[40%] bg-linear-to-r from-transparent via-white/90 to-transparent"
                     style={{ filter: 'blur(1px)' }}
                     animate={{ x: ['-250%', '250%'] }}
                     transition={{ repeat: Infinity, duration: 1.5, ease: [0.4, 0, 0.2, 1] }}
@@ -255,7 +255,7 @@ export default function HdrModal({
 
   return (
     <div
-      className={`fixed inset-0 flex items-center justify-center z-50 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
+      className={`fixed inset-0 flex items-center justify-center z-50 bg-black/40 backdrop-blur-xs transition-opacity duration-300 ease-in-out ${
         show ? 'opacity-100' : 'opacity-0'
       }`}
       onMouseDown={handleBackdropMouseDown}

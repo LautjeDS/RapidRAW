@@ -278,7 +278,7 @@ export default function CurveGraph({
   const histogramOpacity = isLightTheme ? 0.6 : 0.15;
 
   const channelConfig: ChannelConfig = {
-    luma: { color: 'rgb(var(--color-accent))', data: histogram?.luma },
+    luma: { color: 'var(--color-accent)', data: histogram?.luma },
     red: { color: '#FF6B6B', data: histogram?.red },
     green: { color: '#6BCB77', data: histogram?.green },
     blue: { color: '#4D96FF', data: histogram?.blue },

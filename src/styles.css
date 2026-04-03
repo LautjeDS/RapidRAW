@@ -1,8 +1,96 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@source not "../src-tauri";
+
+@theme {
+  --color-bg-primary: var(--app-bg-primary);
+  --color-bg-secondary: var(--app-bg-secondary);
+  --color-surface: var(--app-surface);
+  --color-card-active: var(--app-card-active);
+  --color-button-text: var(--app-button-text);
+  --color-text-primary: var(--app-text-primary);
+  --color-text-secondary: var(--app-text-secondary);
+  --color-accent: var(--app-accent);
+  --color-border-color: var(--app-border-color);
+  --color-hover-color: var(--app-hover-color);
+
+  --font-sans: var(--font-family);
+
+  --shadow-shiny: 0 0 24px rgba(255, 255, 255, 0.12);
+
+  --radius-md: 8px;
+  --radius-lg: 15px;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility slider-input {
+  &::-webkit-slider-thumb {
+    @apply h-4 w-4 appearance-none rounded-full bg-accent;
+    transition:
+      transform 150ms ease-in-out,
+      background-color 400ms ease-in-out;
+    margin-top: -5px;
+  }
+
+  &::-moz-range-thumb {
+    @apply h-4 w-4 rounded-full bg-accent border-none;
+    transition:
+      transform 150ms ease-in-out,
+      background-color 400ms ease-in-out;
+  }
+
+  &.slider-thumb-active::-webkit-slider-thumb {
+    @apply scale-110;
+  }
+
+  &.slider-thumb-active::-moz-range-thumb {
+    @apply scale-110;
+  }
+}
+
+@utility slider-thumb-active {
+  &.slider-input::-webkit-slider-thumb {
+    @apply scale-110;
+  }
+
+  &.slider-input::-moz-range-thumb {
+    @apply scale-110;
+  }
+}
+
+@utility temperature-gradient-track {
+  background: linear-gradient(to right, #2d4a74, #3f94b6, #8a8a8a, #c7c549, #c7863c) !important;
+}
+
+@utility tint-gradient-track {
+  background: linear-gradient(to right, #448d41, #59d459, #8a8a8a, #9c548a, #be409f) !important;
+}
+
+@utility text-shadow-shiny {
+  text-shadow: 0 0 18px rgba(255, 255, 255, 0.35);
+}
 
 @layer base {
+  :where(button, [role='button']):not([disabled]) {
+    cursor: pointer;
+  }
+
   html {
     background-color: transparent;
   }
@@ -30,43 +118,12 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background-color: theme('colors.text-secondary');
+    background-color: var(--color-text-secondary);
     border-radius: 10px;
     border: 2px solid transparent;
     background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background-color: theme('colors.hover-color');
-  }
-}
-
-@layer components {
-  .slider-input::-webkit-slider-thumb {
-    @apply h-4 w-4 appearance-none rounded-full bg-accent;
-    transition:
-      transform 150ms ease-in-out,
-      background-color 400ms ease-in-out;
-    margin-top: -5px;
-  }
-
-  .slider-input::-moz-range-thumb {
-    @apply h-4 w-4 rounded-full bg-accent border-none;
-    transition:
-      transform 150ms ease-in-out,
-      background-color 400ms ease-in-out;
-  }
-
-  .slider-input.slider-thumb-active::-webkit-slider-thumb {
-    @apply scale-110;
-  }
-
-  .slider-input.slider-thumb-active::-moz-range-thumb {
-    @apply scale-110;
-  }
-}
-
-@layer utilities {
-  .text-shadow-shiny {
-    text-shadow: 0 0 18px rgba(255, 255, 255, 0.35);
+    background-color: var(--color-hover-color);
   }
 }

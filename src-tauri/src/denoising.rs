@@ -13,6 +13,12 @@ use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
+struct ProgressReporter<'a> {
+    counter: &'a Arc<AtomicUsize>,
+    total_work: usize,
+    app_handle: &'a AppHandle,
+}
+
 const BLOCK_SIZE: usize = 8;
 const BLOCK_AREA: usize = 64;
 const MAX_GROUP_SIZE: usize = 16;
@@ -61,16 +67,13 @@ fn run_bm3d(
 
     let _ = app_handle.emit("denoise-progress", "Processing (Step 1/2)...");
 
-    let mut denoised_channels = bm3d_process_joint(
-        &channels,
-        width,
-        height,
-        &params,
-        &dct_tables,
-        &progress_counter,
-        total_work_units,
+    let progress = ProgressReporter {
+        counter: &progress_counter,
+        total_work: total_work_units,
         app_handle,
-    );
+    };
+    let mut denoised_channels =
+        bm3d_process_joint(&channels, width, height, &params, &dct_tables, &progress);
 
     {
         let _ = app_handle.emit("denoise-progress", "Blending detail...");
@@ -238,9 +241,7 @@ fn bm3d_process_joint(
     height: u32,
     params: &Bm3dParams,
     tables: &DctTables,
-    counter: &Arc<AtomicUsize>,
-    total_work: usize,
-    app_handle: &AppHandle,
+    progress: &ProgressReporter,
 ) -> Vec<Vec<f32>> {
     let basic_estimate = run_bm3d_step_joint(
         noisy_channels,
@@ -250,9 +251,7 @@ fn bm3d_process_joint(
         params,
         true,
         tables,
-        counter,
-        total_work,
-        app_handle,
+        progress,
     );
 
     run_bm3d_step_joint(
@@ -263,12 +262,11 @@ fn bm3d_process_joint(
         params,
         false,
         tables,
-        counter,
-        total_work,
-        app_handle,
+        progress,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_bm3d_step_joint(
     noisy: &[Vec<f32>],
     guide: &[Vec<f32>],
@@ -277,9 +275,7 @@ fn run_bm3d_step_joint(
     params: &Bm3dParams,
     is_step_1: bool,
     tables: &DctTables,
-    counter: &Arc<AtomicUsize>,
-    total_work: usize,
-    app_handle: &AppHandle,
+    progress: &ProgressReporter,
 ) -> Vec<Vec<f32>> {
     let w = width as usize;
     let h = height as usize;
@@ -301,12 +297,12 @@ fn run_bm3d_step_joint(
     }
 
     ref_patches.par_iter().for_each(|&(rx, ry)| {
-        let c = counter.fetch_add(1, AtomicOrdering::Relaxed);
+        let c = progress.counter.fetch_add(1, AtomicOrdering::Relaxed);
         if c.is_multiple_of(200) {
-            let pct = (c as f32 / total_work as f32) * 100.0;
+            let pct = (c as f32 / progress.total_work as f32) * 100.0;
             let step_str = if is_step_1 { "Step 1/2" } else { "Step 2/2" };
             let msg = format!("{} - {:.0}%", step_str, pct);
-            let _ = app_handle.emit("denoise-progress", msg);
+            let _ = progress.app_handle.emit("denoise-progress", msg);
         }
 
         let mut group_locs_buf = [(0, 0); MAX_GROUP_SIZE];
@@ -428,6 +424,7 @@ struct Match {
     y: u16,
 }
 
+#[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn block_matching_joint(
     channels: &[Vec<f32>],

@@ -494,7 +494,7 @@ export default function Waveform({
   }, []);
 
   const baseButtonClass =
-    'relative flex-grow text-center px-1.5 py-1 text-xs rounded-lg font-medium transition-colors duration-150';
+    'relative grow text-center px-1.5 py-1 text-xs rounded-lg font-medium transition-colors duration-150';
   const inactiveButtonClass = 'text-text-primary hover:bg-bg-tertiary';
 
   const isLoaderMode = [
@@ -586,7 +586,7 @@ export default function Waveform({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="absolute inset-x-0 bottom-0 p-2 pt-6 bg-gradient-to-t from-black/80 to-transparent flex justify-center z-20"
+            className="absolute inset-x-0 bottom-0 p-2 pt-6 bg-linear-to-t from-black/80 to-transparent flex justify-center z-20"
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -600,13 +600,13 @@ export default function Waveform({
                   <button
                     onClick={onToggleClipping}
                     data-tooltip={showClipping ? 'Hide Clipping Warnings' : 'Show Clipping Warnings'}
-                    className={`relative flex items-center justify-center w-7 h-7 flex-shrink-0 rounded-lg transition-colors duration-150 ${
+                    className={`relative flex items-center justify-center w-7 h-7 shrink-0 rounded-lg transition-colors duration-150 ${
                       showClipping ? 'bg-accent text-button-text' : 'text-text-primary hover:bg-bg-tertiary'
                     }`}
                   >
                     <AlertOctagon size={14} />
                   </button>
-                  <div className="w-px h-5 bg-white/20 mx-1 flex-shrink-0"></div>
+                  <div className="w-px h-5 bg-white/20 mx-1 shrink-0"></div>
                 </>
               )}
 

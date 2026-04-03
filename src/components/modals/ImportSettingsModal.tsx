@@ -89,7 +89,7 @@ export default function ImportSettingsModal({ fileCount, isOpen, onClose, onSave
   return (
     <div
       aria-modal="true"
-      className={`fixed inset-0 flex items-center justify-center z-50 bg-black/30 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
+      className={`fixed inset-0 flex items-center justify-center z-50 bg-black/30 backdrop-blur-xs transition-opacity duration-300 ease-in-out ${
         show ? 'opacity-100' : 'opacity-0'
       }`}
       onClick={onClose}

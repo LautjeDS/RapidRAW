@@ -93,11 +93,11 @@ export const generatePaletteFromImage = (imageUrl: string) => {
         b += (gray - b) * t;
       }
 
-      const accent = `${Math.round(r)} ${Math.round(g)} ${Math.round(b)}`;
+      const accent = `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
 
       resolve({
-        '--color-accent': accent,
-        '--color-hover-color': accent,
+        '--app-accent': accent,
+        '--app-hover-color': accent,
       });
     };
 
