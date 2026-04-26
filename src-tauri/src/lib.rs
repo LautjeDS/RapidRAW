@@ -2483,8 +2483,8 @@ async fn export_and_upload_to_immich(
         let state = app_handle.state::<AppState>();
         let app_handle_for_settings = app_handle.clone();
 
-        let processing_result: Result<(), String> = (async move {
-            let context = Arc::new(get_or_init_gpu_context(&state)?);
+        let processing_result: Result<(), String> = (async {
+            let context = Arc::new(get_or_init_gpu_context(&state, &app_handle)?);
             let (source_path, _) = parse_virtual_path(&original_path);
             let source_path_str = source_path.to_string_lossy().to_string();
             let output_format = output_format.to_lowercase();

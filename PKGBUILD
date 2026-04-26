@@ -26,7 +26,7 @@ arch=('x86_64')
 
 options=('!lto')
 
-#_pkgsrc="RapidRAW-$pkgver"
+_pkgsrc=$(pwd)
 #_pkgext="tar.gz"
 #source=("$_pkgname-$pkgver.$_pkgext"::"$url/archive/refs/tags/v$pkgver.$_pkgext")
 #sha256sums=('8d61b10ee9e0c0581eb0e059996c4356029d9c095cf6adefe5698d893f2daf26')
@@ -35,11 +35,11 @@ build() {
   local _units=$(($(nproc) > 16 ? $(nproc) : 16))
   export RUSTFLAGS="-C opt-level=2 -C codegen-units=$_units -C lto=off"
 
-  #cd "$_pkgsrc"
-  npm run tauri build
+  cd "$_pkgsrc" || exit
+  #npm run tauri build
 }
 
 package() {
-#  cd "$_pkgsrc"
+  cd "$_pkgsrc" || exit
   cp -r "src-tauri/${CARGO_TARGET_DIR}/release/bundle/deb/RapidRAW_${pkgver%%.r*}_amd64/data"/* "$pkgdir/"
 }
