@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { FileInput, CheckCircle, XCircle, Loader, Ban } from 'lucide-react';
+import { FileInput, Cloud, CheckCircle, XCircle, Loader, Ban } from 'lucide-react';
 import debounce from 'lodash.debounce';
 import Switch from '../../ui/Switch';
 import Button from '../../ui/Button';
@@ -250,6 +250,7 @@ export default function ExportPanel({
   const [estimatedSize, setEstimatedSize] = useState<number | null>(null);
   const [isEstimating, setIsEstimating] = useState<boolean>(false);
   const [watermarkImageAspectRatio, setWatermarkImageAspectRatio] = useState(1);
+  const [useImmichExport, setUseImmichExport] = useState(false);
   const filenameInputRef = useRef<HTMLInputElement>(null);
   const osPlatform = useOsPlatform();
   const isAndroid = osPlatform === 'android';
@@ -406,6 +407,11 @@ export default function ExportPanel({
       return;
     }
 
+    if (useImmichExport) {
+      await handleExportToImmich();
+      return;
+    }
+
     let finalFilenameTemplate = filenameTemplate;
     if (isBatchMode && !filenameTemplate.includes('{sequence}') && !filenameTemplate.includes('{original_filename}')) {
       finalFilenameTemplate = `${filenameTemplate}_{sequence}`;
@@ -510,9 +516,57 @@ export default function ExportPanel({
     }
   };
 
+  const handleExportToImmich = async () => {
+    if (isExporting) return;
+    if (!isEditorContext || !selectedImage) return;
+
+    const exportSettings: ExportSettings = {
+      filenameTemplate,
+      jpegQuality: jpegQuality,
+      keepMetadata,
+      preserveTimestamps,
+      resize: enableResize ? { mode: resizeMode, value: resizeValue, dontEnlarge } : null,
+      stripGps,
+      exportMasks: exportMasks,
+      watermark:
+        enableWatermark && watermarkPath
+          ? {
+              path: watermarkPath,
+              anchor: watermarkAnchor,
+              scale: watermarkScale,
+              spacing: watermarkSpacing,
+              opacity: watermarkOpacity,
+            }
+          : null,
+    };
+
+    try {
+      setExportState({ status: Status.Exporting, progress: { current: 0, total: 1 }, errorMessage: '' });
+      const outputFormat = FILE_FORMATS.find((f: FileFormat) => f.id === fileFormat)?.extensions[0] || 'jpg';
+      await invoke(Invokes.ExportAndUploadToImmich, {
+        originalPath: selectedImage.path,
+        jsAdjustments: adjustments,
+        exportSettings,
+        outputFormat,
+      });
+    } catch (err) {
+      console.error('Failed to export to Immich:', err);
+      setExportState({ status: Status.Error, progress: { current: 0, total: 1 }, errorMessage: String(err) });
+    }
+  };
+
   const canExport = numImages > 0;
+  const canExportToImmich =
+    !!isEditorContext && !!appSettings?.immichUrl?.trim() && !!appSettings?.immichApiKey?.trim();
   const isLut = fileFormat === FileFormats.Cube;
+  const canRunExport = useImmichExport ? canExport && canExportToImmich : canExport;
   const itemLabel = isLut ? 'LUT' : 'Image';
+
+  useEffect(() => {
+    if (!canExportToImmich || isLut || isBatchMode) {
+      setUseImmichExport(false);
+    }
+  }, [canExportToImmich, isLut, isBatchMode]);
 
   return (
     <div className="flex flex-col h-full">
@@ -559,6 +613,14 @@ export default function ExportPanel({
                     fillOrigin="min"
                   />
                 </div>
+              )}
+              {!isLut && !isBatchMode && canExportToImmich && (
+                <Switch
+                  label="Upload to Immich"
+                  checked={useImmichExport}
+                  onChange={setUseImmichExport}
+                  disabled={isExporting}
+                />
               )}
             </Section>
 
@@ -795,7 +857,7 @@ export default function ExportPanel({
                     ? 'bg-yellow-500/20 text-yellow-400 shadow-none'
                     : ''
           }`}
-          disabled={status === Status.Exporting ? false : !canExport}
+          disabled={status === Status.Exporting ? false : !canRunExport}
           onClick={status === Status.Exporting ? handleCancel : handleExport}
           size="lg"
         >
@@ -824,7 +886,8 @@ export default function ExportPanel({
             </>
           ) : (
             <>
-              <FileInput size={18} className="mr-2" /> Export {numImages > 1 ? `${numImages} ${itemLabel}s` : itemLabel}
+              {useImmichExport ? <Cloud size={18} className="mr-2" /> : <FileInput size={18} className="mr-2" />}
+              {useImmichExport ? 'Export & Upload' : `Export ${numImages > 1 ? `${numImages} ${itemLabel}s` : itemLabel}`}
             </>
           )}
         </Button>

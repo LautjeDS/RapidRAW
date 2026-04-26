@@ -367,6 +367,10 @@ fn default_linear_raw_mode() -> String {
     "auto".to_string()
 }
 
+fn default_immich_upload_suffix_option() -> Option<String> {
+    Some("~RapidRaw".to_string())
+}
+
 fn default_tagging_shortcuts_option() -> Option<Vec<String>> {
     Some(vec![
         "portrait".to_string(),
@@ -456,6 +460,12 @@ pub struct AppSettings {
     pub active_waveform_channel: Option<String>,
     #[serde(default)]
     pub use_wgpu_renderer: Option<bool>,
+    #[serde(default)]
+    pub immich_url: Option<String>,
+    #[serde(default)]
+    pub immich_api_key: Option<String>,
+    #[serde(default = "default_immich_upload_suffix_option")]
+    pub immich_upload_suffix: Option<String>,
 }
 
 fn default_adjustment_visibility() -> HashMap<String, bool> {
@@ -525,6 +535,9 @@ impl Default for AppSettings {
             use_wgpu_renderer: Some(false),
             #[cfg(not(any(target_os = "linux", target_os = "android")))]
             use_wgpu_renderer: Some(true),
+            immich_url: None,
+            immich_api_key: None,
+            immich_upload_suffix: default_immich_upload_suffix_option(),
         }
     }
 }
