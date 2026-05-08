@@ -39,12 +39,12 @@ I started developing this project as a personal challenge when I was 18. My goal
     </td>
     <td width="50%" valign="top" align="center">
       <br>
-      <a href="https://github.com/CyberTimon/RapidRAW-Docs">
+      <a href="https://www.getrapidraw.com/docs/">
         <img src="https://raw.githubusercontent.com/CyberTimon/RapidRAW/main/src-tauri/icons/docs.png" alt="Read the Docs" height="96">
       </a>
       <h3>Read the Docs</h3>
-      <p>Learn how to use RapidRAW with step-by-step tutorials, from adjustments to masking.</p>
-      <strong><a href="https://github.com/CyberTimon/RapidRAW-Docs">View Tutorials & Examples →</a></strong>
+      <p>Learn how RapidRAW works with step-by-step tutorials, from adjustments to masking.</p>
+      <strong><a href="https://www.getrapidraw.com/docs/">View Tutorials & Docs →</a></strong>
       <br><br>
     </td>
   </tr>
@@ -60,8 +60,20 @@ RapidRAW is still in active development and isn't yet as polished as mature tool
 <details>
 <summary><strong>Recent Changes</strong></summary>
 
+- **2026-05-04:** Added EXIF editing to the metadata panel, accumulating shader execution order, and improved UI responsiveness with triple buffering.
+- **2026-05-03:** Introduced a "focus mode" for distraction-free editing and enhanced filmic exposure. Batch editing now correctly respects copy/paste settings.
+- **2026-05-01:** Implemented manual noise reduction with separate controls for luma and color. Optimized the thumbnail generation and request system for better performance.
+- **2026-04-30:** Major backend refactoring for improved stability and performance. Fixed key issues with cropping, including preserving position when changing aspect ratios.
+- **2026-04-29:** Added a tonemapper override option and significantly improved the UI on vertical/mobile screens.
+- **2026-04-27:** Implemented parametric curves tool and introduced thumbnail workers to speed up library browsing.
+- **2026-04-24:** Overhauled the controls system, adding a dedicated settings section for fully customizable keyboard shortcuts.
+- **2026-04-22:** Improved auto-adjustment logic, fixed lens correction on Android, and added an import button for mobile devices.
 - **2026-04-21:** Signed Android APKs, added canvas shortcuts to keybinds, added reset adjustments confirm submenu, and fixed WGPU renderer bugs
 - **2026-04-20:** Added style/tool preset mode, improved auto-adjustments via thumbnail caching, and optimized WGPU renderer with custom transform wrapper
+
+<details>
+<summary><strong>Expand further</strong></summary>
+
 - **2026-04-19:** Added brightness to auto-adjust and replicated pixelated rendering logic in WGPU display
 - **2026-04-18:** Implemented direct WGPU renderer and fixed macOS GPU context initialization
 - **2026-04-17:** Added comprehensive touch support for masks, curves, sliders, and scrolling
@@ -78,10 +90,6 @@ RapidRAW is still in active development and isn't yet as polished as mature tool
 - **2026-04-04:** Fixed filmstrip additive multi-range selection
 - **2026-04-02:** Added Android URI support and Android file management integration
 - **2026-04-01:** Added depth masking with depth anything v2 & improved ROI rendering performance
-
-<details>
-<summary><strong>Expand further</strong></summary>
-
 - **2026-03-30:** LaMa inpainting for lightweight local content-aware fill and object removal
 - **2026-03-26:** Performance improvements & new flat list mode for library
 - **2026-03-25:** Optimize folder loading & tree fetching

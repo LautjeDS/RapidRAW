@@ -1,4 +1,4 @@
-use crate::file_management::{load_settings, parse_virtual_path, read_file_mapped};
+use crate::file_management::{parse_virtual_path, read_file_mapped};
 use crate::image_loader::load_base_image_from_bytes;
 use base64::{Engine as _, engine::general_purpose};
 use image::codecs::jpeg::JpegEncoder;
@@ -15,6 +15,7 @@ use tauri::AppHandle;
 
 use crate::AppState;
 use crate::image_processing::downscale_f32_image;
+use crate::load_settings;
 use tauri::Emitter;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]

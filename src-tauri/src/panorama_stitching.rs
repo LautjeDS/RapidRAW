@@ -1,9 +1,14 @@
-use crate::file_management::load_settings;
-use image::{DynamicImage, GrayImage, Rgb32FImage};
+use crate::app_settings::load_settings;
+use crate::app_state::AppState;
+use crate::file_management::parse_virtual_path;
+use base64::{Engine as _, engine::general_purpose};
+use image::ImageFormat;
+use image::{DynamicImage, GenericImageView, GrayImage, Rgb32FImage};
 use nalgebra::Matrix3;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
+use std::io::Cursor;
 use std::path::Path;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
@@ -47,10 +52,128 @@ pub struct MatchInfo {
     pub inliers: usize,
 }
 
-pub fn stitch_images(
-    image_paths: Vec<String>,
-    app_handle: AppHandle,
-) -> Result<DynamicImage, String> {
+#[tauri::command]
+pub async fn stitch_panorama(
+    paths: Vec<String>,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    if paths.len() < 2 {
+        return Err("Please select at least two images to stitch.".to_string());
+    }
+
+    let source_paths: Vec<String> = paths
+        .iter()
+        .map(|p| parse_virtual_path(p).0.to_string_lossy().into_owned())
+        .collect();
+
+    let panorama_result_handle = state.panorama_result.clone();
+
+    let task = tokio::task::spawn_blocking(move || {
+        let panorama_result = stitch_images(source_paths, app_handle.clone());
+
+        match panorama_result {
+            Ok(panorama_image) => {
+                let _ = app_handle.emit("panorama-progress", "Creating preview...");
+
+                let (w, h) = panorama_image.dimensions();
+                let (new_w, new_h) = if w > h {
+                    (800, (800.0 * h as f32 / w as f32).round() as u32)
+                } else {
+                    ((800.0 * w as f32 / h as f32).round() as u32, 800)
+                };
+
+                let preview_f32 =
+                    crate::image_processing::downscale_f32_image(&panorama_image, new_w, new_h);
+
+                let preview_u8 = preview_f32.to_rgb8();
+
+                let mut buf = Cursor::new(Vec::new());
+
+                if let Err(e) = preview_u8.write_to(&mut buf, ImageFormat::Png) {
+                    return Err(format!("Failed to encode panorama preview: {}", e));
+                }
+
+                let base64_str = general_purpose::STANDARD.encode(buf.get_ref());
+                let final_base64 = format!("data:image/png;base64,{}", base64_str);
+
+                *panorama_result_handle.lock().unwrap() = Some(panorama_image);
+
+                let _ = app_handle.emit(
+                    "panorama-complete",
+                    serde_json::json!({
+                        "base64": final_base64,
+                    }),
+                );
+                Ok(())
+            }
+            Err(e) => {
+                let _ = app_handle.emit("panorama-error", e.clone());
+                Err(e)
+            }
+        }
+    });
+
+    match task.await {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(join_err) => Err(format!("Panorama task failed: {}", join_err)),
+    }
+}
+
+#[tauri::command]
+pub async fn save_panorama(
+    first_path_str: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let panorama_image = state
+        .panorama_result
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or_else(|| {
+            "No panorama image found in memory to save. It might have already been saved."
+                .to_string()
+        })?;
+
+    let (first_path, _) = parse_virtual_path(&first_path_str);
+    let parent_dir = first_path
+        .parent()
+        .ok_or_else(|| "Could not determine parent directory of the first image.".to_string())?;
+    let stem = first_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("panorama");
+
+    let (output_filename, image_to_save): (String, DynamicImage) =
+        if panorama_image.color().has_alpha() {
+            (
+                format!("{}_Pano.png", stem),
+                DynamicImage::ImageRgba8(panorama_image.to_rgba8()),
+            )
+        } else if panorama_image.as_rgb32f().is_some() {
+            (format!("{}_Pano.tiff", stem), panorama_image)
+        } else {
+            (
+                format!("{}_Pano.png", stem),
+                DynamicImage::ImageRgb8(panorama_image.to_rgb8()),
+            )
+        };
+
+    let output_path = parent_dir.join(output_filename);
+
+    image_to_save
+        .save(&output_path)
+        .map_err(|e| format!("Failed to save panorama image: {}", e))?;
+
+    let (real_path, _) = crate::file_management::parse_virtual_path(&first_path_str);
+    let _ =
+        crate::exif_processing::write_rrexif_sidecar(&real_path.to_string_lossy(), &output_path);
+
+    Ok(output_path.to_string_lossy().to_string())
+}
+
+fn stitch_images(image_paths: Vec<String>, app_handle: AppHandle) -> Result<DynamicImage, String> {
     if image_paths.len() < 2 {
         return Err("At least two images are required for a panorama.".to_string());
     }

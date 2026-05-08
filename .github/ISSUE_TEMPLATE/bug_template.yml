@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for taking the time to report a bug! Please fill out the information below to help us understand and fix the issue.
 
-        > **Note:** This template is for reporting bugs and issues only. For feature requests, please use the [Discussions page](../../discussions) instead.
+        > **Note:** This template is for reporting bugs and issues only. For feature requests, please use the [Discussions page](discussions) instead.
 
   - type: textarea
     id: what-happened

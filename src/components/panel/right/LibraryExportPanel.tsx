@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { FileInput, CheckCircle, XCircle, Loader, X, Ban } from 'lucide-react';
+import { FileInput, CheckCircle, XCircle, Loader, X, Ban, ChevronDown, ChevronRight, Settings } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import debounce from 'lodash.debounce';
 import Switch from '../../ui/Switch';
 import Button from '../../ui/Button';
@@ -221,6 +222,7 @@ export default function LibraryExportPanel({
   } = useExportSettings();
 
   const [hasLoadedSettings, setHasLoadedSettings] = useState(false);
+  const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
 
   useEffect(() => {
     if (!isVisible) {
@@ -471,7 +473,7 @@ export default function LibraryExportPanel({
             defaultPath: lastExportPath ?? undefined,
           });
 
-      if (outputFolder) {
+      if (isAndroid || outputFolder) {
         if (!isAndroid) {
           saveLastUsedPreset(outputFolder as string);
         }
@@ -580,14 +582,6 @@ export default function LibraryExportPanel({
                   </button>
                 ))}
               </div>
-              <div className="mt-4">
-                <Switch
-                  label="Preserve Folder Structure"
-                  checked={preserveFolders}
-                  onChange={setPreserveFolders}
-                  disabled={isExporting}
-                />
-              </div>
             </Section>
 
             {fileFormat !== FileFormats.Cube && (
@@ -632,45 +626,25 @@ export default function LibraryExportPanel({
                 </Section>
 
                 {fileFormat == FileFormats.Jpeg && (
-                  <>
-                    <Section title="Metadata">
-                      <Switch
-                        checked={keepMetadata}
-                        disabled={isExporting}
-                        label="Keep Original Metadata"
-                        onChange={setKeepMetadata}
-                      />
-                      {keepMetadata && (
-                        <div className="pl-2 border-l-2 border-surface">
-                          <Switch
-                            label="Remove GPS Data"
-                            checked={stripGps}
-                            onChange={setStripGps}
-                            disabled={isExporting}
-                          />
-                        </div>
-                      )}
-                    </Section>
-                  </>
+                  <Section title="Metadata">
+                    <Switch
+                      checked={keepMetadata}
+                      disabled={isExporting}
+                      label="Save with Metadata"
+                      onChange={setKeepMetadata}
+                    />
+                    {keepMetadata && (
+                      <div className="pl-2 border-l-2 border-surface">
+                        <Switch
+                          label="Remove GPS Data"
+                          checked={stripGps}
+                          onChange={setStripGps}
+                          disabled={isExporting}
+                        />
+                      </div>
+                    )}
+                  </Section>
                 )}
-
-                <Section title="File Timestamps">
-                  <Switch
-                    checked={preserveTimestamps}
-                    disabled={isExporting}
-                    label="Set File Timestamps from EXIF Capture Date"
-                    onChange={setPreserveTimestamps}
-                  />
-                </Section>
-
-                <Section title="Masks">
-                  <Switch
-                    label="Export masks as separate files"
-                    checked={exportMasks}
-                    onChange={setExportMasks}
-                    disabled={isExporting}
-                  />
-                </Section>
 
                 <Section title="Watermark">
                   <Switch
@@ -744,6 +718,67 @@ export default function LibraryExportPanel({
                 </Section>
               </>
             )}
+
+            <div>
+              <Text variant={TextVariants.heading} className="mb-2">
+                Advanced
+              </Text>
+              <div className="bg-surface rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setIsAdvancedExpanded(!isAdvancedExpanded)}
+                  className="w-full flex items-center justify-between p-3.5 hover:bg-card-active transition-colors"
+                >
+                  <Text
+                    as="span"
+                    variant={TextVariants.label}
+                    color={TextColors.primary}
+                    className="flex items-center gap-2"
+                  >
+                    <Settings size={16} /> Export Settings
+                  </Text>
+                  <Text color={TextColors.secondary}>
+                    {isAdvancedExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  </Text>
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {isAdvancedExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-4 pt-2 border-t border-surface/50 flex flex-col gap-4">
+                        <Switch
+                          label="Preserve Folder Structure"
+                          checked={preserveFolders}
+                          onChange={setPreserveFolders}
+                          disabled={isExporting}
+                        />
+                        {fileFormat !== FileFormats.Cube && (
+                          <>
+                            <Switch
+                              checked={preserveTimestamps}
+                              disabled={isExporting}
+                              label="Set File Timestamps from EXIF Capture Date"
+                              onChange={setPreserveTimestamps}
+                            />
+                            <Switch
+                              label="Export masks as separate files"
+                              checked={exportMasks}
+                              onChange={setExportMasks}
+                              disabled={isExporting}
+                            />
+                          </>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
           </>
         ) : (
           <Text

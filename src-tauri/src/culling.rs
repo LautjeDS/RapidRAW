@@ -1,4 +1,4 @@
-use crate::file_management::load_settings;
+use crate::app_settings::load_settings;
 use image::{GenericImageView, GrayImage, imageops};
 use image_hasher::{HashAlg, HasherConfig};
 use rayon::prelude::*;

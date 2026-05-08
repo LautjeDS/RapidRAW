@@ -26,6 +26,7 @@ interface SliderProps {
 const DOUBLE_CLICK_THRESHOLD_MS = 300;
 const FINE_ADJUSTMENT_MULTIPLIER = 0.2;
 const TOUCH_DRAG_THRESHOLD_PX = 10;
+const TOUCH_THUMB_HIT_RADIUS_PX = 24;
 
 const Slider = ({
   defaultValue = 0,
@@ -56,7 +57,9 @@ const Slider = ({
     startX: number;
     startY: number;
     latestX: number;
+    startValue: number;
   } | null>(null);
+  const suppressTouchChangeRef = useRef(false);
 
   const fillPercentage = max !== min ? ((displayValue - min) / (max - min)) * 100 : 0;
   const originPercentage = useMemo(() => {
@@ -168,6 +171,8 @@ const Slider = ({
 
     const handlePointerUp = () => {
       lastUpTime.current = Date.now();
+      pendingTouchRef.current = null;
+      suppressTouchChangeRef.current = false;
       setIsDragging(false);
     };
 
@@ -249,6 +254,10 @@ const Slider = ({
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (suppressTouchChangeRef.current) {
+      return;
+    }
+
     if (!isDragging) {
       setDisplayValue(Number(e.target.value));
       onChange(e);
@@ -279,10 +288,25 @@ const Slider = ({
     if (e.touches.length === 0) return;
 
     const touch = e.touches[0];
+    suppressTouchChangeRef.current = true;
+
+    const inputEl = rangeInputRef.current;
+    if (!inputEl) return;
+
+    const rect = inputEl.getBoundingClientRect();
+    const fraction = max !== min ? (displayValue - min) / (max - min) : 0;
+    const thumbX = rect.left + Math.max(0, Math.min(1, fraction)) * rect.width;
+
+    if (Math.abs(touch.clientX - thumbX) > TOUCH_THUMB_HIT_RADIUS_PX) {
+      pendingTouchRef.current = null;
+      return;
+    }
+
     pendingTouchRef.current = {
       startX: touch.clientX,
       startY: touch.clientY,
       latestX: touch.clientX,
+      startValue: displayValue,
     };
   };
 
@@ -315,8 +339,7 @@ const Slider = ({
     if (!inputEl) return;
 
     const rect = inputEl.getBoundingClientRect();
-    const fraction = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-    const rawValue = min + fraction * (max - min);
+    const rawValue = pendingTouch.startValue + (deltaX / rect.width) * (max - min);
     const snappedValue = snapToStep(rawValue);
 
     accumulatedValueRef.current = rawValue;
@@ -334,6 +357,7 @@ const Slider = ({
 
   const handleTouchEnd = () => {
     pendingTouchRef.current = null;
+    suppressTouchChangeRef.current = false;
   };
 
   const handleValueClick = () => {

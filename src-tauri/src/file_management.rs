@@ -9,7 +9,6 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::thread;
 
 use anyhow::Result;
@@ -17,13 +16,6 @@ use base64::{Engine as _, engine::general_purpose};
 use chrono::{DateTime, Utc};
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Luma};
-#[cfg(target_os = "android")]
-use jni::objects::{JObject, JString, JValue};
-#[cfg(target_os = "android")]
-use jni::{JNIEnv, JavaVM};
-#[cfg(target_os = "android")]
-use ndk_context::android_context;
-use rayon::ThreadPoolBuilder;
 use rayon::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -33,7 +25,10 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::AppState;
-use crate::calculate_geometry_hash;
+#[cfg(target_os = "android")]
+use crate::android_integration::*;
+use crate::app_settings::*;
+use crate::cache_utils::calculate_geometry_hash;
 use crate::exif_processing;
 use crate::formats::{is_raw_file, is_supported_image_file};
 use crate::gpu_processing;
@@ -106,32 +101,6 @@ pub enum PresetItem {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PresetFile {
     pub presets: Vec<PresetItem>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct SortCriteria {
-    pub key: String,
-    pub order: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct FilterCriteria {
-    pub rating: u8,
-    pub raw_status: String,
-    #[serde(default)]
-    pub colors: Vec<String>,
-}
-
-impl Default for FilterCriteria {
-    fn default() -> Self {
-        Self {
-            rating: 0,
-            raw_status: "all".to_string(),
-            colors: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -367,10 +336,6 @@ fn default_linear_raw_mode() -> String {
     "auto".to_string()
 }
 
-fn default_immich_upload_suffix_option() -> Option<String> {
-    Some("~RapidRaw".to_string())
-}
-
 fn default_tagging_shortcuts_option() -> Option<Vec<String>> {
     Some(vec![
         "portrait".to_string(),
@@ -460,12 +425,8 @@ pub struct AppSettings {
     pub active_waveform_channel: Option<String>,
     #[serde(default)]
     pub use_wgpu_renderer: Option<bool>,
-    #[serde(default)]
-    pub immich_url: Option<String>,
-    #[serde(default)]
-    pub immich_api_key: Option<String>,
-    #[serde(default = "default_immich_upload_suffix_option")]
-    pub immich_upload_suffix: Option<String>,
+    #[serde(flatten)]
+    pub immich: ImmichSettings,
 }
 
 fn default_adjustment_visibility() -> HashMap<String, bool> {
@@ -535,9 +496,7 @@ impl Default for AppSettings {
             use_wgpu_renderer: Some(false),
             #[cfg(not(any(target_os = "linux", target_os = "android")))]
             use_wgpu_renderer: Some(true),
-            immich_url: None,
-            immich_api_key: None,
-            immich_upload_suffix: default_immich_upload_suffix_option(),
+            immich: ImmichSettings::default(),
         }
     }
 }
@@ -594,253 +553,6 @@ pub fn parse_virtual_path(virtual_path: &str) -> (PathBuf, PathBuf) {
     (source_path, sidecar_path)
 }
 
-#[cfg(target_os = "android")]
-fn is_android_content_uri(path: &str) -> bool {
-    path.starts_with("content://")
-}
-
-#[cfg(target_os = "android")]
-fn clear_pending_android_exception(env: &mut JNIEnv<'_>) {
-    if env.exception_check().unwrap_or(false) {
-        let _ = env.exception_describe();
-        let _ = env.exception_clear();
-    }
-}
-
-#[cfg(target_os = "android")]
-fn map_android_jni_error(env: &mut JNIEnv<'_>, err: jni::errors::Error) -> String {
-    clear_pending_android_exception(env);
-    format!("Android JNI error: {}", err)
-}
-
-#[cfg(target_os = "android")]
-fn close_android_closeable(env: &mut JNIEnv<'_>, closeable: &JObject<'_>) {
-    if closeable.is_null() {
-        return;
-    }
-
-    if let Err(err) = env.call_method(closeable, "close", "()V", &[]) {
-        clear_pending_android_exception(env);
-        log::warn!("Failed to close Android Closeable: {}", err);
-    }
-}
-
-#[cfg(target_os = "android")]
-fn get_android_content_resolver<'local>(
-    env: &mut JNIEnv<'local>,
-) -> Result<JObject<'local>, String> {
-    let context = env
-        .new_local_ref(unsafe { JObject::from_raw(android_context().context().cast()) })
-        .map_err(|e| map_android_jni_error(env, e))?;
-
-    let resolver = env
-        .call_method(
-            &context,
-            "getContentResolver",
-            "()Landroid/content/ContentResolver;",
-            &[],
-        )
-        .and_then(|value| value.l())
-        .map_err(|e| map_android_jni_error(env, e))?;
-
-    if resolver.is_null() {
-        return Err("Android ContentResolver was null.".into());
-    }
-
-    Ok(resolver)
-}
-
-#[cfg(target_os = "android")]
-fn parse_android_uri<'local>(
-    env: &mut JNIEnv<'local>,
-    uri_str: &str,
-) -> Result<JObject<'local>, String> {
-    let uri_string = env
-        .new_string(uri_str)
-        .map_err(|e| map_android_jni_error(env, e))?;
-
-    let uri = env
-        .call_static_method(
-            "android/net/Uri",
-            "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[(&uri_string).into()],
-        )
-        .and_then(|value| value.l())
-        .map_err(|e| map_android_jni_error(env, e))?;
-
-    if uri.is_null() {
-        return Err(format!("Failed to parse Android content URI: {}", uri_str));
-    }
-
-    Ok(uri)
-}
-
-#[cfg(target_os = "android")]
-fn resolve_android_content_uri_name(uri_str: &str) -> Result<String, String> {
-    let vm = unsafe { JavaVM::from_raw(android_context().vm().cast()) }
-        .map_err(|e| format!("Failed to access Android JVM: {}", e))?;
-    let mut env = vm
-        .attach_current_thread()
-        .map_err(|e| format!("Failed to attach current thread to Android JVM: {}", e))?;
-
-    let resolver = get_android_content_resolver(&mut env)?;
-    let uri = parse_android_uri(&mut env, uri_str)?;
-    let null_obj = JObject::null();
-
-    let cursor = env
-        .call_method(
-            &resolver,
-            "query",
-            "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;",
-            &[
-                (&uri).into(),
-                (&null_obj).into(),
-                (&null_obj).into(),
-                (&null_obj).into(),
-                (&null_obj).into(),
-            ],
-        )
-        .and_then(|value| value.l())
-        .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-    if cursor.is_null() {
-        return Err(format!(
-            "ContentResolver query returned no cursor for URI: {}",
-            uri_str
-        ));
-    }
-
-    let result = (|| -> Result<String, String> {
-        let moved = env
-            .call_method(&cursor, "moveToFirst", "()Z", &[])
-            .and_then(|value| value.z())
-            .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-        if !moved {
-            return Err(format!(
-                "No metadata rows found for content URI: {}",
-                uri_str
-            ));
-        }
-
-        let display_name_column = env
-            .get_static_field(
-                "android/provider/OpenableColumns",
-                "DISPLAY_NAME",
-                "Ljava/lang/String;",
-            )
-            .and_then(|value| value.l())
-            .map_err(|e| map_android_jni_error(&mut env, e))?;
-        let column_index = env
-            .call_method(
-                &cursor,
-                "getColumnIndex",
-                "(Ljava/lang/String;)I",
-                &[(&display_name_column).into()],
-            )
-            .and_then(|value| value.i())
-            .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-        if column_index < 0 {
-            return Err(format!(
-                "DISPLAY_NAME column was unavailable for content URI: {}",
-                uri_str
-            ));
-        }
-
-        let display_name_obj = env
-            .call_method(
-                &cursor,
-                "getString",
-                "(I)Ljava/lang/String;",
-                &[JValue::from(column_index)],
-            )
-            .and_then(|value| value.l())
-            .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-        if display_name_obj.is_null() {
-            return Err(format!(
-                "Display name was null for content URI: {}",
-                uri_str
-            ));
-        }
-
-        let display_name_java = JString::from(display_name_obj);
-        let display_name = env
-            .get_string(&display_name_java)
-            .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-        Ok(display_name.into())
-    })();
-
-    close_android_closeable(&mut env, &cursor);
-    result
-}
-
-#[cfg(target_os = "android")]
-fn read_android_content_uri(uri_str: &str) -> Result<Vec<u8>, String> {
-    let vm = unsafe { JavaVM::from_raw(android_context().vm().cast()) }
-        .map_err(|e| format!("Failed to access Android JVM: {}", e))?;
-    let mut env = vm
-        .attach_current_thread()
-        .map_err(|e| format!("Failed to attach current thread to Android JVM: {}", e))?;
-
-    let resolver = get_android_content_resolver(&mut env)?;
-    let uri = parse_android_uri(&mut env, uri_str)?;
-    let input_stream = env
-        .call_method(
-            &resolver,
-            "openInputStream",
-            "(Landroid/net/Uri;)Ljava/io/InputStream;",
-            &[(&uri).into()],
-        )
-        .and_then(|value| value.l())
-        .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-    if input_stream.is_null() {
-        return Err(format!(
-            "Failed to open InputStream for Android content URI: {}",
-            uri_str
-        ));
-    }
-
-    let result = (|| -> Result<Vec<u8>, String> {
-        const BUFFER_SIZE: i32 = 8192;
-
-        let java_buffer = env
-            .new_byte_array(BUFFER_SIZE)
-            .map_err(|e| map_android_jni_error(&mut env, e))?;
-        let mut rust_buffer = vec![0i8; BUFFER_SIZE as usize];
-        let mut bytes = Vec::new();
-
-        loop {
-            let read_count = env
-                .call_method(&input_stream, "read", "([B)I", &[(&java_buffer).into()])
-                .and_then(|value| value.i())
-                .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-            if read_count < 0 {
-                break;
-            }
-
-            if read_count == 0 {
-                continue;
-            }
-
-            let read_len = read_count as usize;
-            env.get_byte_array_region(&java_buffer, 0, &mut rust_buffer[..read_len])
-                .map_err(|e| map_android_jni_error(&mut env, e))?;
-            bytes.extend(rust_buffer[..read_len].iter().map(|byte| *byte as u8));
-        }
-
-        Ok(bytes)
-    })();
-
-    close_android_closeable(&mut env, &input_stream);
-    result
-}
-
 #[tauri::command]
 pub async fn read_exif_for_paths(
     paths: Vec<String>,
@@ -872,6 +584,46 @@ pub async fn read_exif_for_paths(
         .collect();
 
     Ok(exif_data)
+}
+
+#[tauri::command]
+pub async fn update_exif_fields(
+    paths: Vec<String>,
+    updates: HashMap<String, String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths.par_iter().for_each(|path| {
+            let original_path = Path::new(&path);
+            let rrexif_path = crate::exif_processing::get_rrexif_path(original_path);
+
+            let mut exif_data =
+                if let Some(sidecar) = crate::exif_processing::read_rrexif_sidecar(original_path) {
+                    sidecar
+                } else if let Ok(mmap) = read_file_mapped(original_path) {
+                    crate::exif_processing::read_exif_data(path, &mmap)
+                } else if let Ok(bytes) = fs::read(original_path) {
+                    crate::exif_processing::read_exif_data(path, &bytes)
+                } else {
+                    HashMap::new()
+                };
+
+            for (k, v) in &updates {
+                let trimmed = v.trim();
+                if trimmed.is_empty() {
+                    exif_data.remove(k);
+                } else {
+                    exif_data.insert(k.clone(), trimmed.to_string());
+                }
+            }
+
+            if let Ok(json) = serde_json::to_string_pretty(&exif_data) {
+                let _ = std::fs::write(&rrexif_path, json);
+            }
+        });
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
 }
 
 #[tauri::command]
@@ -1384,8 +1136,7 @@ pub fn generate_thumbnail_data(
         && !meta.adjustments.is_null()
     {
         let state = app_handle.state::<AppState>();
-        let settings =
-            crate::file_management::load_settings(app_handle.clone()).unwrap_or_default();
+        let settings = load_settings(app_handle.clone()).unwrap_or_default();
         let target_res = settings.thumbnail_resolution.unwrap_or(720);
 
         let geometry_hash = calculate_geometry_hash(&meta.adjustments);
@@ -1420,8 +1171,7 @@ pub fn generate_thumbnail_data(
         let (processing_base, total_scale) = if let Some(hit) = cached_base {
             hit
         } else {
-            let settings =
-                crate::file_management::load_settings(app_handle.clone()).unwrap_or_default();
+            let settings = load_settings(app_handle.clone()).unwrap_or_default();
             let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
             let linear_mode = settings.linear_raw_mode;
             let mut raw_scale_factor = 1.0f32;
@@ -1574,7 +1324,8 @@ pub fn generate_thumbnail_data(
             })
             .collect();
 
-        let gpu_adjustments = get_all_adjustments_from_json(&meta.adjustments, is_raw);
+        let tm_override = crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
+        let gpu_adjustments = get_all_adjustments_from_json(&meta.adjustments, is_raw, tm_override);
         let lut_path = meta.adjustments["lutPath"].as_str();
         let lut = lut_path.and_then(|p| {
             let mut cache = state.lut_cache.lock().unwrap();
@@ -1613,7 +1364,7 @@ pub fn generate_thumbnail_data(
         }
     }
 
-    let settings = crate::file_management::load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
     let linear_mode = settings.linear_raw_mode;
 
@@ -1646,8 +1397,23 @@ pub fn generate_thumbnail_data(
         }
     };
 
-    if is_raw && adjustments.is_null() {
-        apply_cpu_default_raw_processing(&mut final_image);
+    if adjustments.is_null() {
+        let default_tm = if is_raw {
+            settings.default_raw_tonemapper.as_deref().unwrap_or("agx")
+        } else {
+            settings
+                .default_non_raw_tonemapper
+                .as_deref()
+                .unwrap_or("basic")
+        };
+        if default_tm == "agx" {
+            if !is_raw {
+                final_image = crate::image_processing::apply_srgb_to_linear(final_image);
+            }
+            crate::image_processing::apply_cpu_agx_tonemap(&mut final_image);
+        } else if is_raw {
+            apply_cpu_default_raw_processing(&mut final_image);
+        }
     }
 
     let fallback_orientation_steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
@@ -1712,7 +1478,7 @@ fn generate_single_thumbnail_and_cache(
         return Some((format!("data:image/jpeg;base64,{}", base64_str), rating));
     }
 
-    let settings = crate::file_management::load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let target_width = settings.thumbnail_resolution.unwrap_or(720);
 
     if let Ok(thumb_image) =
@@ -1726,114 +1492,111 @@ fn generate_single_thumbnail_and_cache(
     None
 }
 
-#[tauri::command]
-pub async fn generate_thumbnails(
-    paths: Vec<String>,
-    app_handle: tauri::AppHandle,
-) -> Result<HashMap<String, String>, String> {
-    let app_handle_clone = app_handle.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let cache_dir = app_handle_clone
-            .path()
-            .app_cache_dir()
-            .map_err(|e| e.to_string())?;
-        let thumb_cache_dir = cache_dir.join("thumbnails");
-        if !thumb_cache_dir.exists() {
-            fs::create_dir_all(&thumb_cache_dir).map_err(|e| e.to_string())?;
-        }
+pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
+    let state = app_handle.state::<crate::AppState>();
+    let manager = state.thumbnail_manager.clone();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let thread_count = settings.thumbnail_worker_threads.unwrap_or(4).clamp(1, 16);
 
-        let state = app_handle_clone.state::<AppState>();
-        let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+    for _ in 0..thread_count {
+        let app_clone = app_handle.clone();
+        let manager_clone = manager.clone();
 
-        let thumbnails: HashMap<String, String> = paths
-            .par_iter()
-            .filter_map(|path_str| {
-                generate_single_thumbnail_and_cache(
-                    path_str,
-                    &thumb_cache_dir,
-                    gpu_context.as_ref(),
-                    None,
-                    false,
-                    &app_handle_clone,
-                )
-                .map(|(data, _rating)| (path_str.clone(), data))
-            })
-            .collect();
+        std::thread::spawn(move || {
+            loop {
+                let path_to_process: String = {
+                    let mut queue = manager_clone.queue.lock().unwrap();
+                    while queue.is_empty() {
+                        queue = manager_clone.cvar.wait(queue).unwrap();
+                    }
+                    let path = queue.pop_back().unwrap();
 
-        Ok(thumbnails)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+                    let mut processing = manager_clone.processing_now.lock().unwrap();
+                    if processing.contains(&path) {
+                        let state = app_clone.state::<crate::AppState>();
+                        increment_thumbnail_progress(&state, &app_clone);
+                        continue;
+                    }
+                    processing.insert(path.clone());
+                    path
+                };
+
+                let state = app_clone.state::<crate::AppState>();
+                let gpu_context =
+                    crate::gpu_processing::get_or_init_gpu_context(&state, &app_clone).ok();
+
+                if let Ok(cache_dir) = get_thumb_cache_dir(&app_clone) {
+                    let result = generate_single_thumbnail_and_cache(
+                        &path_to_process,
+                        &cache_dir,
+                        gpu_context.as_ref(),
+                        None,
+                        false,
+                        &app_clone,
+                    );
+
+                    if let Some((thumbnail_data, rating)) = result {
+                        let _ = app_clone.emit(
+                            "thumbnail-generated",
+                            serde_json::json!({
+                                "path": path_to_process,
+                                "data": thumbnail_data,
+                                "rating": rating
+                            }),
+                        );
+                    }
+                    increment_thumbnail_progress(&state, &app_clone);
+                }
+                manager_clone
+                    .processing_now
+                    .lock()
+                    .unwrap()
+                    .remove(&path_to_process);
+            }
+        });
+    }
 }
 
 #[tauri::command]
-pub fn generate_thumbnails_progressive(
+pub fn update_thumbnail_queue(
     paths: Vec<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let state = app_handle.state::<AppState>();
+    let state = app_handle.state::<crate::AppState>();
 
-    add_to_thumbnail_queue(&state, paths.len(), &app_handle);
-
-    state
-        .thumbnail_cancellation_token
-        .store(false, Ordering::SeqCst);
-    let cancellation_token = state.thumbnail_cancellation_token.clone();
-
-    const MAX_THUMBNAIL_THREADS: usize = 6;
-    let num_threads = (num_cpus::get_physical().saturating_sub(1)).clamp(1, MAX_THUMBNAIL_THREADS);
-
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build()
-        .unwrap();
-    let cache_dir = app_handle
-        .path()
-        .app_cache_dir()
-        .map_err(|e| e.to_string())?;
-    let thumb_cache_dir = cache_dir.join("thumbnails");
-    if !thumb_cache_dir.exists() {
-        fs::create_dir_all(&thumb_cache_dir).map_err(|e| e.to_string())?;
+    let mut unique_paths = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for path in paths {
+        if seen.insert(path.clone()) {
+            unique_paths.push(path);
+        }
     }
 
-    let app_handle_clone = app_handle.clone();
+    let mut queue = state.thumbnail_manager.queue.lock().unwrap();
+    queue.clear();
 
-    pool.spawn(move || {
-        let state = app_handle_clone.state::<AppState>();
-        let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+    let path_count = unique_paths.len();
+    for path in unique_paths {
+        queue.push_back(path);
+    }
 
-        let _ = paths.par_iter().try_for_each(|path_str| -> Result<(), ()> {
-            if cancellation_token.load(Ordering::Relaxed) {
-                return Err(());
-            }
+    let mut tracker = state.thumbnail_progress.lock().unwrap();
+    if path_count == 0 {
+        tracker.total = 0;
+        tracker.completed = 0;
+    } else {
+        tracker.total = tracker.completed + path_count;
+    }
 
-            let result = generate_single_thumbnail_and_cache(
-                path_str,
-                &thumb_cache_dir,
-                gpu_context.as_ref(),
-                None,
-                false,
-                &app_handle_clone,
-            );
+    let current = tracker.completed;
+    let total = tracker.total;
+    drop(tracker);
 
-            if let Some((thumbnail_data, rating)) = result {
-                if cancellation_token.load(Ordering::Relaxed) {
-                    return Err(());
-                }
-                let _ = app_handle_clone.emit(
-                    "thumbnail-generated",
-                    serde_json::json!({ "path": path_str, "data": thumbnail_data, "rating": rating }),
-                );
-            }
-
-            if cancellation_token.load(Ordering::Relaxed) {
-                return Err(());
-            }
-            increment_thumbnail_progress(&state, &app_handle_clone);
-            Ok(())
-        });
-    });
-
+    let _ = app_handle.emit(
+        "thumbnail-progress",
+        serde_json::json!({ "current": current, "total": total }),
+    );
+    state.thumbnail_manager.cvar.notify_all();
     Ok(())
 }
 
@@ -1873,6 +1636,20 @@ pub fn increment_thumbnail_progress(state: &AppState, app_handle: &AppHandle) {
             serde_json::json!({ "current": current, "total": total }),
         );
     }
+}
+
+#[tauri::command]
+pub fn get_supported_file_types() -> Result<serde_json::Value, String> {
+    let raw_extensions: Vec<&str> = crate::formats::RAW_EXTENSIONS
+        .iter()
+        .map(|(ext, _)| *ext)
+        .collect();
+    let non_raw_extensions: Vec<&str> = crate::formats::NON_RAW_EXTENSIONS.to_vec();
+
+    Ok(serde_json::json!({
+        "raw": raw_extensions,
+        "nonRaw": non_raw_extensions
+    }))
 }
 
 #[tauri::command]
@@ -2700,31 +2477,24 @@ pub fn save_presets(presets: Vec<PresetItem>, app_handle: AppHandle) -> Result<(
     fs::write(path, json_string).map_err(|e| e.to_string())
 }
 
-fn get_settings_path(app_handle: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let settings_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
-
-    if !settings_dir.exists() {
-        fs::create_dir_all(&settings_dir).map_err(|e| e.to_string())?;
-    }
-
-    Ok(settings_dir.join("settings.json"))
-}
-
 fn get_internal_library_root_path(app_handle: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let library_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("library");
+    #[cfg(not(target_os = "android"))]
+    {
+        let library_dir = app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("library");
 
-    if !library_dir.exists() {
-        fs::create_dir_all(&library_dir).map_err(|e| e.to_string())?;
+        if !library_dir.exists() {
+            fs::create_dir_all(&library_dir).map_err(|e| e.to_string())?;
+        }
+        Ok(library_dir)
     }
-
-    Ok(library_dir)
+    #[cfg(target_os = "android")]
+    {
+        crate::android_integration::get_android_internal_library_root()
+    }
 }
 
 #[tauri::command]
@@ -2732,273 +2502,6 @@ pub fn get_or_create_internal_library_root(app_handle: AppHandle) -> Result<Stri
     let library_root = get_internal_library_root_path(&app_handle)?;
 
     Ok(library_root.to_string_lossy().to_string())
-}
-
-#[cfg(target_os = "android")]
-fn put_android_content_value_string<'local>(
-    env: &mut JNIEnv<'local>,
-    content_values: &JObject<'local>,
-    key: &str,
-    value: &str,
-) -> Result<(), String> {
-    let key_java = env
-        .new_string(key)
-        .map_err(|e| map_android_jni_error(env, e))?;
-    let value_java = env
-        .new_string(value)
-        .map_err(|e| map_android_jni_error(env, e))?;
-
-    env.call_method(
-        content_values,
-        "put",
-        "(Ljava/lang/String;Ljava/lang/String;)V",
-        &[(&key_java).into(), (&value_java).into()],
-    )
-    .map_err(|e| map_android_jni_error(env, e))?;
-
-    Ok(())
-}
-
-#[cfg(target_os = "android")]
-fn put_android_content_value_int<'local>(
-    env: &mut JNIEnv<'local>,
-    content_values: &JObject<'local>,
-    key: &str,
-    value: i32,
-) -> Result<(), String> {
-    let key_java = env
-        .new_string(key)
-        .map_err(|e| map_android_jni_error(env, e))?;
-    let value_java = env
-        .new_object("java/lang/Integer", "(I)V", &[JValue::from(value)])
-        .map_err(|e| map_android_jni_error(env, e))?;
-
-    env.call_method(
-        content_values,
-        "put",
-        "(Ljava/lang/String;Ljava/lang/Integer;)V",
-        &[(&key_java).into(), (&value_java).into()],
-    )
-    .map_err(|e| map_android_jni_error(env, e))?;
-
-    Ok(())
-}
-
-#[cfg(target_os = "android")]
-fn delete_android_media_store_item(
-    env: &mut JNIEnv<'_>,
-    resolver: &JObject<'_>,
-    item_uri: &JObject<'_>,
-) {
-    let null_string = JObject::null();
-    let null_args = JObject::null();
-    if let Err(err) = env.call_method(
-        resolver,
-        "delete",
-        "(Landroid/net/Uri;Ljava/lang/String;[Ljava/lang/String;)I",
-        &[item_uri.into(), (&null_string).into(), (&null_args).into()],
-    ) {
-        clear_pending_android_exception(env);
-        log::warn!(
-            "Failed to delete Android MediaStore item after write error: {}",
-            err
-        );
-    }
-}
-
-#[cfg(target_os = "android")]
-fn save_bytes_to_android_media_store(
-    file_name: &str,
-    mime_type: &str,
-    relative_path: &str,
-    collection_class: &str,
-    bytes: &[u8],
-) -> Result<(), String> {
-    let vm = unsafe { JavaVM::from_raw(android_context().vm().cast()) }
-        .map_err(|e| format!("Failed to access Android JVM: {}", e))?;
-    let mut env = vm
-        .attach_current_thread()
-        .map_err(|e| format!("Failed to attach current thread to Android JVM: {}", e))?;
-    let resolver = get_android_content_resolver(&mut env)?;
-    let content_values = env
-        .new_object("android/content/ContentValues", "()V", &[])
-        .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-    put_android_content_value_string(&mut env, &content_values, "_display_name", file_name)?;
-    put_android_content_value_string(&mut env, &content_values, "mime_type", mime_type)?;
-    put_android_content_value_string(&mut env, &content_values, "relative_path", relative_path)?;
-    put_android_content_value_int(&mut env, &content_values, "is_pending", 1)?;
-
-    let collection_uri = env
-        .get_static_field(
-            collection_class,
-            "EXTERNAL_CONTENT_URI",
-            "Landroid/net/Uri;",
-        )
-        .and_then(|value| value.l())
-        .map_err(|e| map_android_jni_error(&mut env, e))?;
-    let item_uri = env
-        .call_method(
-            &resolver,
-            "insert",
-            "(Landroid/net/Uri;Landroid/content/ContentValues;)Landroid/net/Uri;",
-            &[(&collection_uri).into(), (&content_values).into()],
-        )
-        .and_then(|value| value.l())
-        .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-    if item_uri.is_null() {
-        return Err(format!(
-            "Failed to create Android MediaStore item for {}",
-            file_name
-        ));
-    }
-
-    let output_stream = env
-        .call_method(
-            &resolver,
-            "openOutputStream",
-            "(Landroid/net/Uri;)Ljava/io/OutputStream;",
-            &[(&item_uri).into()],
-        )
-        .and_then(|value| value.l())
-        .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-    if output_stream.is_null() {
-        delete_android_media_store_item(&mut env, &resolver, &item_uri);
-        return Err(format!(
-            "Failed to open Android MediaStore output stream for {}",
-            file_name
-        ));
-    }
-
-    let write_result = (|| -> Result<(), String> {
-        let byte_array = env
-            .byte_array_from_slice(bytes)
-            .map_err(|e| map_android_jni_error(&mut env, e))?;
-        env.call_method(&output_stream, "write", "([B)V", &[(&byte_array).into()])
-            .map_err(|e| map_android_jni_error(&mut env, e))?;
-        env.call_method(&output_stream, "flush", "()V", &[])
-            .map_err(|e| map_android_jni_error(&mut env, e))?;
-        Ok(())
-    })();
-
-    close_android_closeable(&mut env, &output_stream);
-
-    if let Err(err) = write_result {
-        delete_android_media_store_item(&mut env, &resolver, &item_uri);
-        return Err(err);
-    }
-
-    let finalized_values = env
-        .new_object("android/content/ContentValues", "()V", &[])
-        .map_err(|e| map_android_jni_error(&mut env, e))?;
-    put_android_content_value_int(&mut env, &finalized_values, "is_pending", 0)?;
-
-    let null_string = JObject::null();
-    let null_args = JObject::null();
-    env.call_method(
-        &resolver,
-        "update",
-        "(Landroid/net/Uri;Landroid/content/ContentValues;Ljava/lang/String;[Ljava/lang/String;)I",
-        &[
-            (&item_uri).into(),
-            (&finalized_values).into(),
-            (&null_string).into(),
-            (&null_args).into(),
-        ],
-    )
-    .map_err(|e| map_android_jni_error(&mut env, e))?;
-
-    Ok(())
-}
-
-#[cfg(target_os = "android")]
-pub fn save_image_bytes_to_android_gallery(
-    file_name: &str,
-    mime_type: &str,
-    bytes: &[u8],
-) -> Result<(), String> {
-    save_bytes_to_android_media_store(
-        file_name,
-        mime_type,
-        "Pictures/RapidRaw",
-        "android/provider/MediaStore$Images$Media",
-        bytes,
-    )
-}
-
-#[cfg(target_os = "android")]
-pub fn save_file_bytes_to_android_downloads(
-    file_name: &str,
-    mime_type: &str,
-    bytes: &[u8],
-) -> Result<(), String> {
-    save_bytes_to_android_media_store(
-        file_name,
-        mime_type,
-        "Download/RapidRaw",
-        "android/provider/MediaStore$Downloads",
-        bytes,
-    )
-}
-
-#[tauri::command]
-pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
-    let path = get_settings_path(&app_handle)?;
-
-    let mut settings: AppSettings = if path.exists() {
-        let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&content).map_err(|e| e.to_string())?
-    } else {
-        AppSettings::default()
-    };
-
-    let all_current_keys = all_available_adjustments();
-    let default_included = default_included_adjustments();
-    let mut settings_modified = false;
-
-    let is_first_migration = settings.copy_paste_settings.known_adjustments.is_empty();
-
-    if is_first_migration {
-        settings.copy_paste_settings.included_adjustments = default_included;
-        settings.copy_paste_settings.known_adjustments = all_current_keys.clone();
-        settings_modified = true;
-    } else {
-        let new_features: Vec<String> = all_current_keys
-            .difference(&settings.copy_paste_settings.known_adjustments)
-            .cloned()
-            .collect();
-
-        if !new_features.is_empty() {
-            for feature in new_features {
-                if default_included.contains(&feature) {
-                    settings
-                        .copy_paste_settings
-                        .included_adjustments
-                        .insert(feature.clone());
-                }
-                settings
-                    .copy_paste_settings
-                    .known_adjustments
-                    .insert(feature);
-            }
-            settings_modified = true;
-        }
-    }
-
-    if settings_modified && let Ok(json_string) = serde_json::to_string_pretty(&settings) {
-        let _ = fs::write(&path, json_string);
-    }
-
-    Ok(settings)
-}
-
-#[tauri::command]
-pub fn save_settings(settings: AppSettings, app_handle: AppHandle) -> Result<(), String> {
-    let path = get_settings_path(&app_handle)?;
-    let json_string = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    fs::write(path, json_string).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3465,7 +2968,7 @@ pub fn get_cached_or_generate_thumbnail_image(
     gpu_context: Option<&GpuContext>,
 ) -> Result<DynamicImage> {
     let thumb_cache_dir = get_thumb_cache_dir(app_handle).map_err(|e| anyhow::anyhow!(e))?;
-    let settings = crate::file_management::load_settings(app_handle.clone()).unwrap_or_default();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let target_width = settings.thumbnail_resolution.unwrap_or(720);
 
     if let Some(cache_hash) = get_cache_key_hash(path_str) {

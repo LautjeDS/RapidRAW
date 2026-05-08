@@ -1,5 +1,10 @@
 use crate::Cursor;
+use crate::app_settings::load_settings;
+use crate::app_state::{AppState, LoadedImage};
+use crate::exif_processing;
+use crate::file_management::{parse_virtual_path, read_file_mapped};
 use crate::formats::is_raw_file;
+use crate::image_processing::ImageMetadata;
 use crate::image_processing::{apply_orientation, remove_raw_artifacts_and_enhance};
 use crate::mask_generation::{MaskDefinition, SubMask, generate_mask_bitmap};
 use crate::raw_processing::develop_raw_image;
@@ -11,12 +16,24 @@ use rawler::Orientation;
 use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::{Value, from_value};
+use std::collections::HashMap;
+use std::fs;
 use std::panic;
+use std::path::Path;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::Instant;
+
+#[derive(serde::Serialize)]
+pub struct LoadImageResult {
+    pub width: u32,
+    pub height: u32,
+    pub metadata: ImageMetadata,
+    pub exif: HashMap<String, String>,
+    pub is_raw: bool,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -282,4 +299,161 @@ pub fn composite_patches_on_image(
     }
 
     Ok(DynamicImage::ImageRgba32F(composited_rgba))
+}
+
+#[tauri::command]
+pub fn is_image_cached(path: String, state: tauri::State<'_, AppState>) -> bool {
+    let (source_path, _) = parse_virtual_path(&path);
+    let source_path_str = source_path.to_string_lossy().to_string();
+    state
+        .decoded_image_cache
+        .lock()
+        .unwrap()
+        .get(&source_path_str)
+        .is_some()
+}
+
+#[tauri::command]
+pub async fn load_image(
+    path: String,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<LoadImageResult, String> {
+    let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let generation_tracker = state.load_image_generation.clone();
+    let cancel_token = Some((generation_tracker.clone(), my_generation));
+
+    {
+        *state.original_image.lock().unwrap() = None;
+        *state.cached_preview.lock().unwrap() = None;
+        *state.gpu_image_cache.lock().unwrap() = None;
+        *state.full_warped_cache.lock().unwrap() = None;
+        *state.full_transformed_cache.lock().unwrap() = None;
+
+        state.mask_cache.lock().unwrap().clear();
+        state.patch_cache.lock().unwrap().clear();
+        state.geometry_cache.lock().unwrap().clear();
+
+        *state.denoise_result.lock().unwrap() = None;
+        *state.hdr_result.lock().unwrap() = None;
+        *state.panorama_result.lock().unwrap() = None;
+    }
+
+    let (source_path, sidecar_path) = parse_virtual_path(&path);
+    let source_path_str = source_path.to_string_lossy().to_string();
+
+    let metadata: ImageMetadata = if sidecar_path.exists() {
+        let file_content = fs::read_to_string(sidecar_path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&file_content).unwrap_or_default()
+    } else {
+        ImageMetadata::default()
+    };
+
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let highlight_compression = settings.raw_highlight_compression.unwrap_or(2.5);
+    let linear_mode = settings.linear_raw_mode;
+
+    let path_clone = source_path_str.clone();
+
+    let cached_data = state
+        .decoded_image_cache
+        .lock()
+        .unwrap()
+        .get(&source_path_str);
+
+    let (pristine_arc, exif_data) = if let Some((cached_img, cached_exif)) = cached_data {
+        (cached_img, cached_exif)
+    } else {
+        let (pristine_img, exif_data_loaded) = tokio::task::spawn_blocking(move || {
+            if generation_tracker.load(Ordering::SeqCst) != my_generation {
+                return Err("Load cancelled".to_string());
+            }
+
+            let result: Result<(DynamicImage, HashMap<String, String>), String> =
+                (|| match read_file_mapped(Path::new(&path_clone)) {
+                    Ok(mmap) => {
+                        if generation_tracker.load(Ordering::SeqCst) != my_generation {
+                            return Err("Load cancelled".to_string());
+                        }
+
+                        let img = load_base_image_from_bytes(
+                            &mmap,
+                            &path_clone,
+                            false,
+                            highlight_compression,
+                            linear_mode.clone(),
+                            cancel_token.clone(),
+                        )
+                        .map_err(|e| e.to_string())?;
+                        let exif = exif_processing::read_exif_data(&path_clone, &mmap);
+                        Ok((img, exif))
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to memory-map file '{}': {}. Falling back to standard read.",
+                            path_clone,
+                            e
+                        );
+                        let bytes = fs::read(&path_clone).map_err(|io_err| {
+                            format!("Fallback read failed for {}: {}", path_clone, io_err)
+                        })?;
+
+                        if generation_tracker.load(Ordering::SeqCst) != my_generation {
+                            return Err("Load cancelled".to_string());
+                        }
+
+                        let img = load_base_image_from_bytes(
+                            &bytes,
+                            &path_clone,
+                            false,
+                            highlight_compression,
+                            linear_mode.clone(),
+                            cancel_token.clone(),
+                        )
+                        .map_err(|e| e.to_string())?;
+                        let exif = exif_processing::read_exif_data(&path_clone, &bytes);
+                        Ok((img, exif))
+                    }
+                })();
+            result
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+
+        let arc_img = Arc::new(pristine_img);
+
+        state.decoded_image_cache.lock().unwrap().insert(
+            source_path_str.clone(),
+            arc_img.clone(),
+            exif_data_loaded.clone(),
+        );
+
+        (arc_img, exif_data_loaded)
+    };
+
+    if state.load_image_generation.load(Ordering::SeqCst) != my_generation {
+        return Err("Load cancelled".to_string());
+    }
+
+    let is_raw = is_raw_file(&source_path_str);
+
+    if state.load_image_generation.load(Ordering::SeqCst) != my_generation {
+        return Err("Load cancelled".to_string());
+    }
+
+    let (orig_width, orig_height) = pristine_arc.dimensions();
+
+    *state.original_image.lock().unwrap() = Some(LoadedImage {
+        path,
+        image: pristine_arc,
+        is_raw,
+    });
+
+    Ok(LoadImageResult {
+        width: orig_width,
+        height: orig_height,
+        metadata,
+        exif: exif_data,
+        is_raw,
+    })
 }

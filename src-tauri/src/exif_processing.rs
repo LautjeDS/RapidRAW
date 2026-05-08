@@ -720,6 +720,12 @@ pub fn write_image_with_metadata(
         if let Some(val) = map.get("Copyright") {
             metadata.set_tag(ExifTag::Copyright(clean_s(val)));
         }
+        if let Some(val) = map.get("UserComment") {
+            metadata.set_tag(ExifTag::UserComment(clean_s(val).into_bytes()));
+        }
+        if let Some(val) = map.get("ImageDescription") {
+            metadata.set_tag(ExifTag::ImageDescription(clean_s(val)));
+        }
         if let Some(val) = map.get("DateTimeOriginal") {
             metadata.set_tag(ExifTag::DateTimeOriginal(clean_s(val)));
         }

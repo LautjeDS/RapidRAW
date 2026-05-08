@@ -1,5 +1,6 @@
 import { ExportPreset } from './ExportImportProperties';
-import { Adjustments } from '../../utils/adjustments';
+import { ImmichAppSettings } from './immich';
+import { Adjustments, CopyPasteSettings } from '../../utils/adjustments';
 import { ToolType } from '../panel/right/Masks';
 
 export const GLOBAL_KEYS = [
@@ -93,7 +94,6 @@ export enum Invokes {
   SaveHdr = 'save_hdr',
   SavePresets = 'save_presets',
   SaveSettings = 'save_settings',
-  ExportAndUploadToImmich = 'export_and_upload_to_immich',
   SetColorLabelForPaths = 'set_color_label_for_paths',
   SetRatingForPaths = 'set_rating_for_paths',
   ShowInFinder = 'show_in_finder',
@@ -102,6 +102,7 @@ export enum Invokes {
   MergeHdr = 'merge_hdr',
   TestAIConnectorConnection = 'test_ai_connector_connection',
   UpdateWgpuTransform = 'update_wgpu_transform',
+  UpdateExifFields = 'update_exif_fields',
   FetchCommunityPresets = 'fetch_community_presets',
   GenerateAllCommunityPreviews = 'generate_all_community_previews',
   SaveCommunityPreset = 'save_community_preset',
@@ -146,7 +147,7 @@ export enum ThumbnailAspectRatio {
   Contain = 'contain',
 }
 
-export interface AppSettings {
+export interface AppSettings extends ImmichAppSettings {
   aiConnectorAddress?: string;
   decorations?: any;
   editorPreviewResolution?: number;
@@ -182,9 +183,14 @@ export interface AppSettings {
   waveformHeight?: number;
   activeWaveformChannel?: string;
   useWgpuRenderer?: boolean;
-  immichUrl?: string;
-  immichApiKey?: string;
-  immichUploadSuffix?: string;
+  canvasInputMode?: 'mouse' | 'trackpad';
+  zoomSpeedMultiplier?: number;
+  keybinds?: { [action: string]: string[] };
+  tonemapperOverrideEnabled?: boolean;
+  defaultRawTonemapper?: string;
+  defaultNonRawTonemapper?: string;
+  copyPasteSettings?: CopyPasteSettings;
+  enableFocusMode?: boolean;
 }
 
 export interface BrushSettings {
@@ -334,4 +340,9 @@ export interface CullingSuggestions {
   similarGroups: CullGroup[];
   blurryImages: ImageAnalysisResult[];
   failedPaths: string[];
+}
+
+export interface KeybindHandler {
+  shouldFire?: () => boolean;
+  execute: (event: KeyboardEvent) => void;
 }

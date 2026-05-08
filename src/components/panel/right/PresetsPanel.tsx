@@ -312,7 +312,7 @@ function DroppableFolderItem({ folder, onContextMenu, children, onToggle, isExpa
         {isExpanded && hasChildren && (
           <motion.div
             animate={{ height: 'auto', opacity: 1 }}
-            className="pl-6 space-y-2 overflow-hidden pt-2"
+            className="ml-5 pl-4 border-l-[1.5px] border-border-color/50 space-y-2 overflow-hidden pt-2"
             exit={{ height: 0, opacity: 0 }}
             initial={{ height: 0, opacity: 0 }}
           >

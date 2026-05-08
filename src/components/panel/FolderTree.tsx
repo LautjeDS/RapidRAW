@@ -205,7 +205,7 @@ function TreeNode({
         {hasChildren && isExpanded && node.children && node.children.length > 0 && (
           <motion.div
             animate="open"
-            className="pl-4 border-l border-border-color/20 ml-3.75 overflow-hidden"
+            className="pl-4 border-l-[1.5px] border-border-color/50 ml-3.75 overflow-hidden"
             exit="closed"
             initial={isInstantTransition ? 'open' : 'closed'}
             key="children-container"

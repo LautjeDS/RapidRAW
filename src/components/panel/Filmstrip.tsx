@@ -8,7 +8,6 @@ import { Color, COLOR_LABELS } from '../../utils/adjustments';
 import Text from '../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 
-const VERTICAL_PADDING = 24;
 const HORIZONTAL_PADDING = 4;
 const ITEM_GAP = 8;
 
@@ -29,7 +28,7 @@ interface ItemData {
   onContextMenu?: (event: any, path: string) => void;
   onImageSelect?: (path: string, event: any) => void;
   itemHeight: number;
-  setSize: (index: number, width: number) => void;
+  setRatio: (index: number, ratio: number) => void;
 }
 
 const FilmstripThumbnail = memo(
@@ -44,8 +43,7 @@ const FilmstripThumbnail = memo(
     thumbnailAspectRatio,
     itemHeight,
     index,
-    setSize,
-    knownWidth,
+    setRatio,
   }: {
     imageFile: ImageFile;
     imageRatings: any;
@@ -57,8 +55,7 @@ const FilmstripThumbnail = memo(
     thumbnailAspectRatio: ThumbnailAspectRatio;
     itemHeight: number;
     index: number;
-    setSize: (index: number, width: number) => void;
-    knownWidth: number;
+    setRatio: (index: number, ratio: number) => void;
   }) => {
     const [layers, setLayers] = useState<ImageLayer[]>(() => {
       return thumbData ? [{ id: thumbData, url: thumbData, opacity: 1 }] : [];
@@ -84,11 +81,7 @@ const FilmstripThumbnail = memo(
         const img = new Image();
         img.onload = () => {
           const ratio = img.naturalWidth / img.naturalHeight;
-          const calculatedWidth = itemHeight * ratio;
-
-          if (Math.abs(calculatedWidth - knownWidth) > 1) {
-            setSize(index, calculatedWidth);
-          }
+          setRatio(index, ratio);
 
           if (isInitialLoad.current) {
             setTimeout(() => {
@@ -98,7 +91,7 @@ const FilmstripThumbnail = memo(
         };
         img.src = thumbData;
       }
-    }, [thumbData, thumbnailAspectRatio, itemHeight, index, setSize, knownWidth]);
+    }, [thumbData, thumbnailAspectRatio, index, setRatio]);
 
     useEffect(() => {
       if (!thumbData) {
@@ -267,7 +260,7 @@ const FilmstripCell = ({
   onContextMenu,
   onImageSelect,
   itemHeight,
-  setSize,
+  setRatio,
 }: any) => {
   const imageFile = imageList[columnIndex];
   const fullWidth = style.width as number;
@@ -296,8 +289,7 @@ const FilmstripCell = ({
           thumbnailAspectRatio={thumbnailAspectRatio}
           itemHeight={itemHeight}
           index={columnIndex}
-          setSize={setSize}
-          knownWidth={contentWidth}
+          setRatio={setRatio}
         />
       </div>
     </div>
@@ -311,11 +303,11 @@ const FilmstripList = ({
 }: {
   height: number;
   width: number;
-  data: Omit<ItemData, 'itemHeight' | 'setSize'> & { clickTriggeredScroll: React.RefObject<boolean> };
+  data: Omit<ItemData, 'itemHeight' | 'setRatio'> & { clickTriggeredScroll: React.RefObject<boolean> };
 }) => {
   const [gridHandle, setGridHandle] = useGridCallbackRef();
-  const sizeMapRef = useRef<Record<number, number>>({});
-  const [sizeMapVersion, setSizeMapVersion] = useState(0);
+  const ratioMapRef = useRef<Record<number, number>>({});
+  const [ratioMapVersion, setRatioMapVersion] = useState(0);
   const visibleRange = useRef({ start: 0, stop: 0 });
   const prevSelectedPath = useRef<string | null>(null);
   const isReadyForSmooth = useRef(false);
@@ -328,21 +320,30 @@ const FilmstripList = ({
   const scrollAnimationTimeout = useRef<any>(null);
   const pendingScrollTarget = useRef<number | null>(null);
   const hasCompletedInitialScroll = useRef(false);
-  const itemHeight = Math.max(20, height - VERTICAL_PADDING);
+
+  const itemHeight = useMemo(() => {
+    const baseHeight = Math.max(20, height - 20);
+    const expandedHeight = Math.max(20, height - 8);
+
+    let totalWidthExpanded = HORIZONTAL_PADDING * 2;
+    for (let i = 0; i < data.imageList.length; i++) {
+      const ratio = data.thumbnailAspectRatio === ThumbnailAspectRatio.Cover ? 1 : ratioMapRef.current[i] || 1.5;
+      totalWidthExpanded += expandedHeight * ratio + ITEM_GAP;
+    }
+
+    if (totalWidthExpanded <= width) {
+      return expandedHeight;
+    }
+
+    return baseHeight;
+  }, [data.imageList.length, data.thumbnailAspectRatio, height, width, ratioMapVersion]);
 
   const getColumnWidth = useCallback(
     (index: number) => {
-      let w;
-      if (data.thumbnailAspectRatio === ThumbnailAspectRatio.Cover) {
-        w = itemHeight;
-      } else {
-        w = sizeMapRef.current[index] || itemHeight * 1.5;
-      }
-      return w + ITEM_GAP;
+      const ratio = data.thumbnailAspectRatio === ThumbnailAspectRatio.Cover ? 1 : ratioMapRef.current[index] || 1.5;
+      return itemHeight * ratio + ITEM_GAP;
     },
-    // sizeMapVersion ensures a new function reference when sizes change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.thumbnailAspectRatio, itemHeight, sizeMapVersion],
+    [data.thumbnailAspectRatio, itemHeight, ratioMapVersion],
   );
 
   useEffect(() => {
@@ -388,9 +389,9 @@ const FilmstripList = ({
   }, []);
 
   useEffect(() => {
-    sizeMapRef.current = {};
-    setSizeMapVersion((v) => v + 1);
-  }, [height, data.thumbnailAspectRatio]);
+    ratioMapRef.current = {};
+    setRatioMapVersion((v) => v + 1);
+  }, [data.thumbnailAspectRatio]);
 
   const onCellsRendered = useCallback(
     (
@@ -505,31 +506,37 @@ const FilmstripList = ({
     gridHandle,
   ]);
 
-  const setSize = useCallback((index: number, width: number) => {
-    if (sizeMapRef.current[index] !== width) {
-      sizeMapRef.current[index] = width;
+  const setRatio = useCallback(
+    (index: number, ratio: number) => {
+      if (Math.abs((ratioMapRef.current[index] || 0) - ratio) > 0.01) {
+        ratioMapRef.current[index] = ratio;
 
-      if (index < lowestPendingIndexRef.current) {
-        lowestPendingIndexRef.current = index;
-      }
+        if (index < lowestPendingIndexRef.current) {
+          lowestPendingIndexRef.current = index;
+        }
 
-      if (pendingResizeRef.current === null) {
-        pendingResizeRef.current = requestAnimationFrame(() => {
-          setSizeMapVersion((v) => v + 1);
-          lowestPendingIndexRef.current = Infinity;
-          pendingResizeRef.current = null;
-        });
+        if (pendingResizeRef.current === null) {
+          pendingResizeRef.current = requestAnimationFrame(() => {
+            if (gridHandle && typeof (gridHandle as any).resetAfterColumnIndex === 'function') {
+              (gridHandle as any).resetAfterColumnIndex(lowestPendingIndexRef.current);
+            }
+            setRatioMapVersion((v) => v + 1);
+            lowestPendingIndexRef.current = Infinity;
+            pendingResizeRef.current = null;
+          });
+        }
       }
-    }
-  }, []);
+    },
+    [gridHandle],
+  );
 
   const cellProps = useMemo(
     () => ({
       ...data,
       itemHeight,
-      setSize,
+      setRatio,
     }),
-    [data, itemHeight, setSize],
+    [data, itemHeight, setRatio],
   );
 
   return (

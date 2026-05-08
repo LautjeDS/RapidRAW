@@ -810,11 +810,7 @@ export default function AIPanel({
       onDragEnd={handleDragEnd}
       collisionDetection={pointerWithin}
     >
-      <div
-        className="flex flex-col h-full select-none overflow-hidden"
-        onClick={handleDeselect}
-        onContextMenu={handlePanelContextMenu}
-      >
+      <div className="flex flex-col h-full select-none overflow-hidden" onContextMenu={handlePanelContextMenu}>
         <div className="p-4 flex justify-between items-center shrink-0 border-b border-surface">
           <Text variant={TextVariants.title}>Inpainting</Text>
           <button
@@ -826,7 +822,7 @@ export default function AIPanel({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col min-h-0 p-4 gap-8">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col min-h-0 p-4">
           <AnimatePresence mode="wait">
             {(adjustments.aiPatches || []).length === 0 ? (
               <motion.div
@@ -836,6 +832,7 @@ export default function AIPanel({
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
                 className="z-10 shrink-0"
+                onClick={handleDeselect}
               >
                 {!selectedImage ? (
                   <Text
@@ -874,6 +871,7 @@ export default function AIPanel({
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
                 className={`flex flex-col transition-colors ${isRootOver ? 'bg-surface' : ''}`}
+                onClick={handleDeselect}
               >
                 <Text variant={TextVariants.heading} className="mb-2">
                   Edits
@@ -950,6 +948,8 @@ export default function AIPanel({
               </motion.div>
             )}
           </AnimatePresence>
+
+          <div className="h-4 shrink-0 w-full" onClick={handleDeselect} />
 
           <AnimatePresence>
             {isSettingsPanelEverOpened && (
@@ -1273,7 +1273,7 @@ function ContainerRow({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden pl-2 border-l border-border-color/20 ml-3.75"
+            className="overflow-hidden pl-2 border-l-[1.5px] border-border-color/50 ml-3.75"
             layout
           >
             <AnimatePresence mode="popLayout" initial={false}>

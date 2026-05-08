@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { FileInput, Cloud, CheckCircle, XCircle, Loader, Ban } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Cloud, FileInput, CheckCircle, XCircle, Loader, Ban, ChevronDown, ChevronRight, Settings } from 'lucide-react';
 import debounce from 'lodash.debounce';
 import Switch from '../../ui/Switch';
 import Button from '../../ui/Button';
@@ -21,6 +22,7 @@ import {
   WatermarkAnchor,
 } from '../../ui/ExportImportProperties';
 import { Invokes, SelectedImage, AppSettings } from '../../ui/AppProperties';
+import { hasImmichConfig, IMMICH_EXPORT_AND_UPLOAD_INVOKE } from '../../ui/immich';
 import ExportPresetsList from '../../ui/ExportPresetsList';
 import { useExportSettings } from '../../../hooks/useExportSettings';
 import { useOsPlatform } from '../../../hooks/useOsPlatform';
@@ -219,6 +221,7 @@ export default function ExportPanel({
     currentSettingsObject,
   } = useExportSettings();
 
+  const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
   const initDone = useRef(false);
   useEffect(() => {
     if (initDone.current || appSettings === null) return;
@@ -451,7 +454,7 @@ export default function ExportPanel({
               defaultPath: lastExportPath ?? undefined,
             });
 
-        if (outputFolder) {
+        if (isAndroid || outputFolder) {
           if (!isAndroid) {
             saveLastUsedPreset(outputFolder as string);
           }
@@ -543,7 +546,7 @@ export default function ExportPanel({
     try {
       setExportState({ status: Status.Exporting, progress: { current: 0, total: 1 }, errorMessage: '' });
       const outputFormat = FILE_FORMATS.find((f: FileFormat) => f.id === fileFormat)?.extensions[0] || 'jpg';
-      await invoke(Invokes.ExportAndUploadToImmich, {
+      await invoke(IMMICH_EXPORT_AND_UPLOAD_INVOKE, {
         originalPath: selectedImage.path,
         jsAdjustments: adjustments,
         exportSettings,
@@ -556,8 +559,7 @@ export default function ExportPanel({
   };
 
   const canExport = numImages > 0;
-  const canExportToImmich =
-    !!isEditorContext && !!appSettings?.immichUrl?.trim() && !!appSettings?.immichApiKey?.trim();
+  const canExportToImmich = !!isEditorContext && hasImmichConfig(appSettings);
   const isLut = fileFormat === FileFormats.Cube;
   const canRunExport = useImmichExport ? canExport && canExportToImmich : canExport;
   const itemLabel = isLut ? 'LUT' : 'Image';
@@ -624,9 +626,9 @@ export default function ExportPanel({
               )}
             </Section>
 
-            <Section title="File Naming">
-              {isBatchMode && (
-                <>
+            {isBatchMode && (
+              <>
+                <Section title="File Naming">
                   <input
                     className="w-full bg-surface border border-surface rounded-md p-2 text-sm text-text-primary focus:ring-accent focus:border-accent"
                     disabled={isExporting}
@@ -647,19 +649,9 @@ export default function ExportPanel({
                       </button>
                     ))}
                   </div>
-                </>
-              )}
-
-              <div className={isBatchMode ? 'mt-4' : ''}>
-                <Switch
-                  label="Preserve Folder Structure"
-                  checked={preserveFolders}
-                  onChange={setPreserveFolders}
-                  disabled={isExporting}
-                  trackClassName="bg-surface"
-                />
-              </div>
-            </Section>
+                </Section>
+              </>
+            )}
 
             {fileFormat !== FileFormats.Cube && (
               <>
@@ -705,49 +697,25 @@ export default function ExportPanel({
                 </Section>
 
                 {fileFormat == FileFormats.Jpeg && (
-                  <>
-                    <Section title="Metadata">
-                      <Switch
-                        checked={keepMetadata}
-                        disabled={isExporting}
-                        label="Keep Original Metadata"
-                        onChange={setKeepMetadata}
-                        trackClassName="bg-surface"
-                      />
-                      {keepMetadata && (
-                        <div className="pl-2 border-l-2 border-surface">
-                          <Switch
-                            label="Remove GPS Data"
-                            checked={stripGps}
-                            onChange={setStripGps}
-                            disabled={isExporting}
-                            trackClassName="bg-surface"
-                          />
-                        </div>
-                      )}
-                    </Section>
-                  </>
-                )}
-
-                <Section title="File Timestamps">
-                  <Switch
-                    checked={preserveTimestamps}
-                    disabled={isExporting}
-                    label="Set File Timestamps from EXIF Capture Date"
-                    onChange={setPreserveTimestamps}
-                    trackClassName="bg-surface"
-                  />
-                </Section>
-
-                {isEditorContext && (
-                  <Section title="Masks">
+                  <Section title="Metadata">
                     <Switch
-                      label="Export masks as separate files"
-                      checked={exportMasks}
-                      onChange={setExportMasks}
+                      checked={keepMetadata}
                       disabled={isExporting}
+                      label="Save with Metadata"
+                      onChange={setKeepMetadata}
                       trackClassName="bg-surface"
                     />
+                    {keepMetadata && (
+                      <div className="pl-2 border-l-2 border-surface">
+                        <Switch
+                          label="Remove GPS Data"
+                          checked={stripGps}
+                          onChange={setStripGps}
+                          disabled={isExporting}
+                          trackClassName="bg-surface"
+                        />
+                      </div>
+                    )}
                   </Section>
                 )}
 
@@ -824,6 +792,72 @@ export default function ExportPanel({
                 </Section>
               </>
             )}
+
+            <div>
+              <Text variant={TextVariants.heading} className="mb-2">
+                Advanced
+              </Text>
+              <div className="bg-surface rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setIsAdvancedExpanded(!isAdvancedExpanded)}
+                  className="w-full flex items-center justify-between p-3.5 hover:bg-card-active transition-colors"
+                >
+                  <Text
+                    as="span"
+                    variant={TextVariants.label}
+                    color={TextColors.primary}
+                    className="flex items-center gap-2"
+                  >
+                    <Settings size={16} /> Export Settings
+                  </Text>
+                  <Text color={TextColors.secondary}>
+                    {isAdvancedExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  </Text>
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {isAdvancedExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-4 pt-2 border-t border-surface/50 flex flex-col gap-4">
+                        <Switch
+                          label="Preserve Folder Structure"
+                          checked={preserveFolders}
+                          onChange={setPreserveFolders}
+                          disabled={isExporting}
+                          trackClassName="bg-surface"
+                        />
+                        {fileFormat !== FileFormats.Cube && (
+                          <>
+                            <Switch
+                              checked={preserveTimestamps}
+                              disabled={isExporting}
+                              label="Set File Timestamps from EXIF Capture Date"
+                              onChange={setPreserveTimestamps}
+                              trackClassName="bg-surface"
+                            />
+                            {isEditorContext && (
+                              <Switch
+                                label="Export masks as separate files"
+                                checked={exportMasks}
+                                onChange={setExportMasks}
+                                disabled={isExporting}
+                                trackClassName="bg-surface"
+                              />
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
           </>
         ) : (
           <Text

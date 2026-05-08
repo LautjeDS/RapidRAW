@@ -160,8 +160,7 @@ pub fn get_or_init_gpu_context(
 
     #[cfg(not(any(target_os = "android", target_os = "linux")))]
     let surface_opt = {
-        let settings =
-            crate::file_management::load_settings(app_handle.clone()).unwrap_or_default();
+        let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
         let use_wgpu_renderer = settings.use_wgpu_renderer.unwrap_or(true);
 
         if use_wgpu_renderer {
@@ -245,7 +244,13 @@ pub fn get_or_init_gpu_context(
             .find(|f| !f.is_srgb())
             .unwrap_or(swapchain_caps.formats[0]);
 
-        let alpha_mode = if swapchain_caps
+        let alpha_mode = if cfg!(target_os = "windows")
+            && swapchain_caps
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::Opaque)
+        {
+            wgpu::CompositeAlphaMode::Opaque
+        } else if swapchain_caps
             .alpha_modes
             .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
         {
@@ -274,89 +279,9 @@ pub fn get_or_init_gpu_context(
         };
         surface.configure(&device, &config);
 
-        let shader_source = "
-            struct Transform {
-                rect: vec4<f32>,
-                clip: vec4<f32>,
-                window: vec2<f32>,
-                image_size: vec2<f32>,
-                texture_size: vec2<f32>,
-                pixelated: f32,
-                _pad: f32,
-                bg_primary: vec4<f32>,
-                bg_secondary: vec4<f32>,
-            };
-            @group(0) @binding(0) var<uniform> transform: Transform;
-            @group(0) @binding(1) var tex: texture_2d<f32>;
-            @group(0) @binding(2) var samp: sampler;
-
-            struct VertexOutput {
-                @builtin(position) pos: vec4<f32>,
-                @location(0) uv: vec2<f32>,
-            };
-
-            @vertex
-            fn vs_main(@builtin(vertex_index) id: u32) -> VertexOutput {
-                let uvs = array<vec2<f32>, 4>(
-                    vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0),
-                    vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0)
-                );
-                let pos = uvs[id];
-
-                let uv_x = transform.clip.x + pos.x * transform.clip.z;
-                let uv_y = transform.clip.y + pos.y * transform.clip.w;
-
-                let half_pixel_x = 0.5;
-                let half_pixel_y = 0.5;
-                let outset_x = (pos.x * 2.0 - 1.0) * half_pixel_x;
-                let outset_y = (pos.y * 2.0 - 1.0) * half_pixel_y;
-
-                let screen_x = uv_x + outset_x;
-                let screen_y = uv_y + outset_y;
-
-                let ndc_x = (screen_x / transform.window.x) * 2.0 - 1.0;
-                let ndc_y = 1.0 - (screen_y / transform.window.y) * 2.0;
-
-                var out: VertexOutput;
-                out.pos = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-
-                out.uv = vec2<f32>(
-                    (uv_x - transform.rect.x) / transform.rect.z,
-                    (uv_y - transform.rect.y) / transform.rect.w
-                );
-
-                return out;
-            }
-
-            @fragment
-            fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-                if (in.uv.x < 0.0 || in.uv.x > 1.0 || in.uv.y < 0.0 || in.uv.y > 1.0) {
-                    return transform.bg_secondary;
-                }
-
-                let adjusted_uv = in.uv * (transform.image_size / transform.texture_size);
-
-                let half_texel = vec2<f32>(0.5, 0.5) / transform.texture_size;
-
-                let min_uv = half_texel;
-                let max_uv = (transform.image_size / transform.texture_size) - half_texel;
-
-                if (transform.pixelated > 0.5) {
-                    let texel_coords = floor(adjusted_uv * transform.texture_size);
-                    let nearest_uv = (texel_coords + vec2<f32>(0.5, 0.5)) / transform.texture_size;
-
-                    let clamped_nearest = clamp(nearest_uv, min_uv, max_uv);
-                    return textureSample(tex, samp, clamped_nearest);
-                } else {
-                    let clamped_uv = clamp(adjusted_uv, min_uv, max_uv);
-                    return textureSample(tex, samp, clamped_uv);
-                }
-            }
-        ";
-
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Display Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(shader_source)),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/display.wgsl").into()),
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1163,20 +1088,22 @@ impl GpuProcessor {
         });
         let out_width = bounds.width;
         let out_height = bounds.height;
-
-        let mask_layer_count = request.mask_bitmaps.len().clamp(1, MAX_MASKS) as u32;
+        let mask_layer_count = request.mask_bitmaps.len().clamp(2, MAX_MASKS) as u32;
         let full_texture_size = wgpu::Extent3d {
             width,
             height,
             depth_or_array_layers: mask_layer_count,
         };
-        let mut mask_texture_data =
-            Vec::with_capacity((width as usize) * (height as usize) * (mask_layer_count as usize));
+        let buffer_size = (width as usize) * (height as usize) * (mask_layer_count as usize);
+        let mut mask_texture_data = Vec::with_capacity(buffer_size);
         if request.mask_bitmaps.is_empty() {
-            mask_texture_data.resize((width as usize) * (height as usize), 0);
+            mask_texture_data.resize(buffer_size, 0);
         } else {
             for mask_bitmap in request.mask_bitmaps.iter().take(MAX_MASKS) {
                 mask_texture_data.extend_from_slice(mask_bitmap.as_raw());
+            }
+            if mask_texture_data.len() < buffer_size {
+                mask_texture_data.resize(buffer_size, 0);
             }
         }
         let mask_texture = device.create_texture_with_data(

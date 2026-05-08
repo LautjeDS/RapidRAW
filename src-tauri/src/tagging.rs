@@ -259,7 +259,7 @@ pub async fn start_background_indexing(
         handle.abort();
     }
 
-    let settings = file_management::load_settings(app_handle.clone())?;
+    let settings = crate::load_settings(app_handle.clone())?;
     if !settings.enable_ai_tagging.unwrap_or(false) {
         return Ok(());
     }

@@ -2,12 +2,17 @@ use crate::ai_processing::{
     AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters, AiSubjectMaskParameters,
 };
 use base64::{Engine as _, engine::general_purpose};
-use image::{DynamicImage, GenericImageView, GrayImage, Luma};
-use imageproc::distance_transform::Norm as DilationNorm;
-use imageproc::morphology::{dilate, erode};
+use image::{DynamicImage, GenericImageView, GrayImage, ImageFormat, Luma, Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::hash_map::DefaultHasher;
 use std::f32::consts::PI;
+use std::hash::{Hash, Hasher};
+use std::io::Cursor;
+use std::sync::Arc;
+
+use crate::app_state::AppState;
+use crate::get_cached_full_warped_image;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(crate = "serde")]
@@ -222,6 +227,88 @@ impl Default for ParametricMaskParameters {
     }
 }
 
+fn grayscale_dilate(image: &GrayImage, k: u8) -> GrayImage {
+    let (width, height) = image.dimensions();
+    if width == 0 || height == 0 {
+        return image.clone();
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let r = k as i32;
+    let src = image.as_raw();
+
+    let mut temp = vec![0u8; w * h];
+    let mut out = vec![0u8; w * h];
+
+    for y in 0..h {
+        let row_offset = y * w;
+        for x in 0..w {
+            let mut max_val = 0;
+            let start = (x as i32 - r).max(0) as usize;
+            let end = (x as i32 + r).min((w - 1) as i32) as usize;
+            for xi in start..=end {
+                max_val = max_val.max(src[row_offset + xi]);
+            }
+            temp[row_offset + x] = max_val;
+        }
+    }
+
+    for x in 0..w {
+        for y in 0..h {
+            let mut max_val = 0;
+            let start = (y as i32 - r).max(0) as usize;
+            let end = (y as i32 + r).min((h - 1) as i32) as usize;
+            for yi in start..=end {
+                max_val = max_val.max(temp[yi * w + x]);
+            }
+            out[y * w + x] = max_val;
+        }
+    }
+
+    GrayImage::from_raw(width, height, out).unwrap()
+}
+
+fn grayscale_erode(image: &GrayImage, k: u8) -> GrayImage {
+    let (width, height) = image.dimensions();
+    if width == 0 || height == 0 {
+        return image.clone();
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let r = k as i32;
+    let src = image.as_raw();
+
+    let mut temp = vec![0u8; w * h];
+    let mut out = vec![0u8; w * h];
+
+    for y in 0..h {
+        let row_offset = y * w;
+        for x in 0..w {
+            let mut min_val = 255;
+            let start = (x as i32 - r).max(0) as usize;
+            let end = (x as i32 + r).min((w - 1) as i32) as usize;
+            for xi in start..=end {
+                min_val = min_val.min(src[row_offset + xi]);
+            }
+            temp[row_offset + x] = min_val;
+        }
+    }
+
+    for x in 0..w {
+        for y in 0..h {
+            let mut min_val = 255;
+            let start = (y as i32 - r).max(0) as usize;
+            let end = (y as i32 + r).min((h - 1) as i32) as usize;
+            for yi in start..=end {
+                min_val = min_val.min(temp[yi * w + x]);
+            }
+            out[y * w + x] = min_val;
+        }
+    }
+
+    GrayImage::from_raw(width, height, out).unwrap()
+}
+
 fn apply_grow_and_feather(mask: &mut GrayImage, grow: f32, feather: f32, width: u32, height: u32) {
     let base_dimension = width.min(height) as f32;
 
@@ -229,23 +316,13 @@ fn apply_grow_and_feather(mask: &mut GrayImage, grow: f32, feather: f32, width: 
         const MAX_GROW_PERCENTAGE: f32 = 0.01;
         let grow_pixels = (grow / 100.0) * base_dimension * MAX_GROW_PERCENTAGE;
 
-        if grow_pixels.abs() >= 1.0 {
-            let mut binary_mask = mask.clone();
-            for p in binary_mask.pixels_mut() {
-                if p[0] > 128 {
-                    p[0] = 255;
-                } else {
-                    p[0] = 0;
-                }
-            }
+        let amount = grow_pixels.abs().round() as u8;
 
-            let amount = grow_pixels.abs().round() as u8;
-            if amount > 0 {
-                if grow_pixels > 0.0 {
-                    *mask = dilate(&binary_mask, DilationNorm::LInf, amount);
-                } else {
-                    *mask = erode(&binary_mask, DilationNorm::LInf, amount);
-                }
+        if amount > 0 {
+            if grow_pixels > 0.0 {
+                *mask = grayscale_dilate(mask, amount);
+            } else {
+                *mask = grayscale_erode(mask, amount);
             }
         }
     }
@@ -1245,4 +1322,115 @@ pub fn generate_mask_bitmap(
     }
 
     Some(final_mask)
+}
+
+#[tauri::command]
+pub fn generate_mask_overlay(
+    mask_def: MaskDefinition,
+    width: u32,
+    height: u32,
+    scale: f32,
+    crop_offset: (f32, f32),
+    js_adjustments: Option<serde_json::Value>,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let scaled_crop_offset = (crop_offset.0 * scale, crop_offset.1 * scale);
+
+    let warped_image = js_adjustments.as_ref().and_then(|adj| {
+        resolve_warped_image_for_masks(&state, adj, std::slice::from_ref(&mask_def))
+    });
+
+    if let Some(gray_mask) = generate_mask_bitmap(
+        &mask_def,
+        width,
+        height,
+        scale,
+        scaled_crop_offset,
+        warped_image.as_deref(),
+    ) {
+        let mut rgba_mask = RgbaImage::new(width, height);
+        for (x, y, pixel) in gray_mask.enumerate_pixels() {
+            let intensity = pixel[0];
+            let alpha = (intensity as f32 * 0.5) as u8;
+            rgba_mask.put_pixel(x, y, Rgba([255, 0, 0, alpha]));
+        }
+
+        let mut buf = Cursor::new(Vec::new());
+        rgba_mask
+            .write_to(&mut buf, ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+
+        let base64_str = general_purpose::STANDARD.encode(buf.get_ref());
+        let data_url = format!("data:image/png;base64,{}", base64_str);
+
+        Ok(data_url)
+    } else {
+        Ok("".to_string())
+    }
+}
+
+pub fn resolve_warped_image_for_masks(
+    state: &tauri::State<AppState>,
+    adjustments: &serde_json::Value,
+    masks: &[MaskDefinition],
+) -> Option<Arc<DynamicImage>> {
+    if masks.iter().any(|m| m.requires_warped_image()) {
+        get_cached_full_warped_image(state, adjustments).ok()
+    } else {
+        None
+    }
+}
+
+pub fn get_cached_or_generate_mask(
+    state: &tauri::State<AppState>,
+    def: &MaskDefinition,
+    width: u32,
+    height: u32,
+    scale: f32,
+    crop_offset: (f32, f32),
+    adjustments: &serde_json::Value,
+) -> Option<GrayImage> {
+    let mut hasher = DefaultHasher::new();
+
+    let mut def_for_hash = def.clone();
+    def_for_hash.adjustments = serde_json::Value::Null;
+    let def_json = serde_json::to_string(&def_for_hash).unwrap_or_default();
+    def_json.hash(&mut hasher);
+
+    width.hash(&mut hasher);
+    height.hash(&mut hasher);
+    scale.to_bits().hash(&mut hasher);
+    crop_offset.0.to_bits().hash(&mut hasher);
+    crop_offset.1.to_bits().hash(&mut hasher);
+
+    let key = hasher.finish();
+
+    {
+        let cache = state.mask_cache.lock().unwrap();
+        if let Some(img) = cache.get(&key) {
+            return Some(img.clone());
+        }
+    }
+
+    let warped_image =
+        resolve_warped_image_for_masks(state, adjustments, std::slice::from_ref(def));
+
+    let generated = generate_mask_bitmap(
+        def,
+        width,
+        height,
+        scale,
+        crop_offset,
+        warped_image.as_deref(),
+    );
+
+    if let Some(img) = &generated {
+        let mut cache = state.mask_cache.lock().unwrap();
+        if cache.len() > 50 {
+            cache.clear();
+        }
+        cache.insert(key, img.clone());
+    }
+
+    generated
 }

@@ -1,15 +1,16 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Check, ChevronDown, ChevronRight, Plus, Star, Tag, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Plus, Star, Tag, X, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import { SelectedImage, AppSettings, Invokes } from '../../ui/AppProperties';
 import { COLOR_LABELS, Color } from '../../../utils/adjustments';
 import Text from '../../ui/Text';
 import { TextColors, TextVariants, TextWeights } from '../../../types/typography';
+import { IconAperture, IconShutter, IconIso, IconFocalLength, IconLens } from '../editor/ExifIcons';
 
 interface CameraSetting {
-  format?(value: number): void;
+  format?(value: number): string | number;
   label: string;
 }
 
@@ -35,65 +36,149 @@ interface MetaDataItemProps {
 
 interface MetaDataPanelProps {
   selectedImage: SelectedImage;
+  multiSelectedPaths: string[];
   rating: number;
   tags: string[];
   onRate(rating: number, paths?: string[]): void;
   onSetColorLabel(color: string | null, paths?: string[]): void;
   onTagsChanged(changedPaths: string[], newTags: { tag: string; isUser: boolean }[]): void;
   appSettings: AppSettings | null;
+  onUpdateExif?: (paths: string[] | undefined, updates: Record<string, string>) => void;
+  liveThumbnailUrl?: string;
 }
 
 const USER_TAG_PREFIX = 'user:';
 
 function formatExifTag(str: string) {
-  if (!str) {
-    return '';
-  }
+  if (!str) return '';
   return str.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
 }
 
 function parseDms(dmsString: string) {
-  if (!dmsString) {
-    return null;
-  }
+  if (!dmsString) return null;
   const parts = dmsString.match(/(\d+\.?\d*)\s+deg\s+(\d+\.?\d*)\s+min\s+(\d+\.?\d*)\s+sec/);
-  if (!parts) {
-    return null;
-  }
+  if (!parts) return null;
   const degrees = parseFloat(parts[1]);
   const minutes = parseFloat(parts[2]);
   const seconds = parseFloat(parts[3]);
   return degrees + minutes / 60 + seconds / 3600;
 }
 
+const CAMERA_ICONS: Record<string, React.FC> = {
+  FNumber: IconAperture,
+  ExposureTime: IconShutter,
+  PhotographicSensitivity: IconIso,
+  FocalLengthIn35mmFilm: IconFocalLength,
+  LensModel: IconLens,
+};
+
 function MetadataItem({ label, value }: MetaDataItemProps) {
   return (
-    <div className="grid grid-cols-3 gap-2 py-2 px-2.5 rounded-sm odd:bg-surface">
+    <div className="flex justify-between items-start gap-4 py-1.5 px-2 rounded-md hover:bg-surface transition-colors cursor-default">
+      <Text variant={TextVariants.small} color={TextColors.secondary} weight={TextWeights.medium} className="shrink-0">
+        {label}
+      </Text>
       <Text
         variant={TextVariants.small}
         color={TextColors.primary}
-        weight={TextWeights.semibold}
-        className="col-span-1 wrap-break-word"
+        className="text-right break-words min-w-0"
+        data-tooltip={String(value)}
       >
-        {label}
-      </Text>
-      <Text variant={TextVariants.small} className="col-span-2 wrap-break-word truncate" data-tooltip={String(value)}>
         {String(value)}
       </Text>
     </div>
   );
 }
 
+interface EditableMetadataItemProps {
+  label: string;
+  value: string;
+  onSave: (val: string) => void;
+}
+
+function EditableMetadataItem({ label, value, onSave }: EditableMetadataItemProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [localValue, setLocalValue] = useState(value || '');
+
+  useEffect(() => {
+    setLocalValue(value || '');
+    setIsEditing(false);
+  }, [value]);
+
+  const handleSave = () => {
+    setIsEditing(false);
+    const trimmedLocal = localValue.trim();
+    const trimmedProp = (value || '').trim();
+    if (trimmedLocal !== trimmedProp) {
+      onSave(trimmedLocal);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') handleSave();
+    if (e.key === 'Escape') {
+      setLocalValue(value || '');
+      setIsEditing(false);
+    }
+  };
+
+  return (
+    <div className="flex justify-between items-center gap-4 py-1 px-2 rounded-md">
+      <Text
+        variant={TextVariants.small}
+        color={TextColors.secondary}
+        weight={TextWeights.medium}
+        className="shrink-0 truncate"
+      >
+        {label}
+      </Text>
+
+      <div className="w-[55%] shrink-0">
+        {isEditing ? (
+          <input
+            autoFocus
+            type="text"
+            value={localValue}
+            onChange={(e) => setLocalValue(e.target.value)}
+            onBlur={handleSave}
+            onKeyDown={handleKeyDown}
+            className="bg-bg-secondary border border-accent rounded-sm px-2 py-0.5 text-xs text-text-primary text-right outline-hidden w-full shadow-sm focus:ring-1 focus:ring-accent/30"
+          />
+        ) : (
+          <div
+            onClick={() => setIsEditing(true)}
+            className="text-xs px-2 py-0.5 min-h-[24px] flex items-center justify-end rounded-sm cursor-text border transition-colors text-right truncate w-full text-text-primary bg-bg-secondary/40 border-surface/50 hover:bg-bg-secondary/80 hover:border-text-tertiary/40"
+            data-tooltip={value ? 'Click to edit' : 'Empty (Click to add)'}
+          >
+            {value}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const EDITABLE_FIELDS = [
+  { key: 'ImageDescription', label: 'Title' },
+  { key: 'Artist', label: 'Author' },
+  { key: 'Copyright', label: 'Copyright' },
+  { key: 'UserComment', label: 'Comments' },
+];
+
 const KEY_CAMERA_SETTINGS_MAP: CameraSettings = {
   FNumber: {
-    format: (value: number) => `${value}`,
+    format: (value: number) => {
+      const fStr = String(value);
+      return fStr.toLowerCase().startsWith('f') ? fStr : `f/${fStr}`;
+    },
     label: 'Aperture',
   },
   ExposureTime: {
-    format: (value: number) => `${value}`,
+    format: (value: number) => (String(value).endsWith('s') ? value : `${value}s`),
     label: 'Shutter Speed',
   },
   PhotographicSensitivity: {
+    format: (value: number) => `${value}`,
     label: 'ISO',
   },
   FocalLengthIn35mmFilm: {
@@ -106,43 +191,53 @@ const KEY_CAMERA_SETTINGS_MAP: CameraSettings = {
   },
 };
 
-const KEY_SETTINGS_ORDER: Array<string> = [
-  'FNumber',
-  'ExposureTime',
-  'PhotographicSensitivity',
-  'FocalLengthIn35mmFilm',
-  'LensModel',
-];
-
 export default function MetadataPanel({
   selectedImage,
+  multiSelectedPaths,
   rating,
   tags,
   onRate,
   onSetColorLabel,
   onTagsChanged,
   appSettings,
+  onUpdateExif,
+  liveThumbnailUrl,
 }: MetaDataPanelProps) {
   const [isOrganizationExpanded, setIsOrganizationExpanded] = useState(false);
+  const [isAuthorExpanded, setIsAuthorExpanded] = useState(false);
   const [tagInputValue, setTagInputValue] = useState('');
   const [isTagInputFocused, setIsTagInputFocused] = useState(false);
 
-  const { keyCameraSettings, gpsData, otherExifEntries } = useMemo(() => {
+  const targetPaths = multiSelectedPaths?.length > 0 ? multiSelectedPaths : [selectedImage.path];
+
+  const { cameraGridSettings, lensSetting, gpsData, otherExifEntries } = useMemo(() => {
     const exif = selectedImage?.exif || {};
 
-    const keyCameraSettings = KEY_SETTINGS_ORDER.map((key) => {
+    const cameraGridKeys = ['FNumber', 'ExposureTime', 'PhotographicSensitivity', 'FocalLengthIn35mmFilm'];
+    const cameraGridSettings = cameraGridKeys.map((key) => {
       const value = exif[key];
-      if (value === undefined || value === null) {
-        return null;
-      }
+      const hasValue = value !== undefined && value !== null && value !== '';
       const config = KEY_CAMERA_SETTINGS_MAP[key];
-      const formattedValue = config.format ? config.format(value) : value;
+
       return {
         key: key,
         label: config.label,
-        value: formattedValue,
+        value: hasValue && config.format ? config.format(value as number) : hasValue ? value : '-',
       };
-    }).filter(Boolean);
+    });
+
+    const lensValue = exif['LensModel'];
+    const hasLensValue = lensValue !== undefined && lensValue !== null && lensValue !== '';
+    const lensSetting = {
+      key: 'LensModel',
+      label: KEY_CAMERA_SETTINGS_MAP['LensModel'].label,
+      value:
+        hasLensValue && KEY_CAMERA_SETTINGS_MAP['LensModel'].format
+          ? KEY_CAMERA_SETTINGS_MAP['LensModel'].format(lensValue as number)
+          : hasLensValue
+            ? lensValue
+            : '-',
+    };
 
     const latStr = exif.GPSLatitude;
     const latRef = exif.GPSLatitudeRef;
@@ -159,9 +254,12 @@ export default function MetadataPanel({
       }
     }
 
-    const otherExifEntries = Object.entries(exif).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+    const handledKeys = [...cameraGridKeys, 'LensModel', ...EDITABLE_FIELDS.map((f) => f.key)];
+    const otherExifEntries = Object.entries(exif)
+      .filter(([key]) => !handledKeys.includes(key))
+      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
 
-    return { keyCameraSettings, gpsData, otherExifEntries };
+    return { cameraGridSettings, lensSetting, gpsData, otherExifEntries };
   }, [selectedImage?.exif]);
 
   const currentColor = useMemo(() => {
@@ -179,16 +277,25 @@ export default function MetadataPanel({
   }, [tags]);
 
   const hasGps = gpsData.lat !== null && gpsData.lon !== null;
+  const fullPath = selectedImage?.path || '';
+  const isVirtualCopy = fullPath.includes('?vc=');
+  const basePath = fullPath.split('?vc=')[0];
+  const fileName = basePath.split(/[\\/]/).pop() || '';
+  const fileExtension = fileName.split('.').pop()?.toUpperCase() || 'FILE';
+  const megapixels =
+    selectedImage?.width && selectedImage?.height
+      ? ((selectedImage.width * selectedImage.height) / 1000000).toFixed(1)
+      : null;
 
   const handleAddTag = async (tagToAdd: string) => {
     const newTagValue = tagToAdd.trim().toLowerCase();
     if (newTagValue && !currentTags.some((t) => t.tag === newTagValue)) {
       try {
         const prefixedTag = `${USER_TAG_PREFIX}${newTagValue}`;
-        await invoke(Invokes.AddTagForPaths, { paths: [selectedImage.path], tag: prefixedTag });
+        await invoke(Invokes.AddTagForPaths, { paths: targetPaths, tag: prefixedTag });
 
         const newTags = [...currentTags, { tag: newTagValue, isUser: true }];
-        onTagsChanged([selectedImage.path], newTags);
+        onTagsChanged(targetPaths, newTags);
         setTagInputValue('');
       } catch (err) {
         console.error(`Failed to add tag: ${err}`);
@@ -199,10 +306,10 @@ export default function MetadataPanel({
   const handleRemoveTag = async (tagToRemove: { tag: string; isUser: boolean }) => {
     try {
       const prefixedTag = tagToRemove.isUser ? `${USER_TAG_PREFIX}${tagToRemove.tag}` : tagToRemove.tag;
-      await invoke(Invokes.RemoveTagForPaths, { paths: [selectedImage.path], tag: prefixedTag });
+      await invoke(Invokes.RemoveTagForPaths, { paths: targetPaths, tag: prefixedTag });
 
       const newTags = currentTags.filter((t) => t.tag !== tagToRemove.tag);
-      onTagsChanged([selectedImage.path], newTags);
+      onTagsChanged(targetPaths, newTags);
     } catch (err) {
       console.error(`Failed to remove tag: ${err}`);
     }
@@ -216,6 +323,8 @@ export default function MetadataPanel({
     e.stopPropagation();
   };
 
+  const LensIcon = CAMERA_ICONS['LensModel'];
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 flex justify-between items-center shrink-0 border-b border-surface">
@@ -223,21 +332,121 @@ export default function MetadataPanel({
       </div>
       <div className="grow overflow-y-auto p-4 custom-scrollbar">
         {selectedImage ? (
-          <div className="flex flex-col gap-8">
+          <div className="flex flex-col gap-6">
             <div>
-              <Text variant={TextVariants.heading} className="border-b border-surface pb-1 mb-2">
-                Image Properties
+              <Text variant={TextVariants.heading} className="mb-3">
+                File Information
+              </Text>
+              <div className="bg-surface border border-surface rounded-xl p-3.5 flex flex-col gap-2 cursor-default relative min-h-[5.5rem] overflow-hidden">
+                {(liveThumbnailUrl || selectedImage?.thumbnailUrl) && (
+                  <div
+                    className="absolute inset-y-0 right-0 w-2/3 pointer-events-none opacity-20"
+                    style={{
+                      backgroundImage: `url(${liveThumbnailUrl || selectedImage.thumbnailUrl})`,
+                      backgroundPosition: 'right center',
+                      backgroundSize: 'cover',
+                      filter: 'grayscale(100%)',
+                      maskImage: 'linear-gradient(to right, transparent 5%, black 80%)',
+                      WebkitMaskImage: 'linear-gradient(to right, transparent 5%, black 80%)',
+                    }}
+                  />
+                )}
+
+                <div className="flex justify-between items-start gap-4 relative z-10">
+                  <Text weight={TextWeights.semibold} color={TextColors.primary} className="truncate drop-shadow-sm">
+                    {fileName || '-'}
+                  </Text>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {isVirtualCopy && (
+                      <div
+                        className="bg-bg-primary/80 backdrop-blur-md text-text-secondary font-bold text-[10px] rounded-md px-2 py-1 tracking-wider uppercase shadow-sm border border-surface/50"
+                        data-tooltip="Virtual Copy"
+                      >
+                        VC
+                      </div>
+                    )}
+                    <div className="bg-bg-primary/80 backdrop-blur-md text-text-secondary font-bold text-[10px] rounded-md px-2 py-1 tracking-wider uppercase shadow-sm border border-surface/50">
+                      {fileExtension}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-0.5 relative z-10">
+                  <Text variant={TextVariants.small} color={TextColors.secondary} className="truncate drop-shadow-sm">
+                    {selectedImage.width && selectedImage.height
+                      ? `${selectedImage.width} × ${selectedImage.height} px${megapixels ? ` • ${megapixels} MP` : ''}`
+                      : '- × - px'}
+                  </Text>
+                  <Text variant={TextVariants.small} color={TextColors.secondary} className="truncate drop-shadow-sm">
+                    {selectedImage.exif?.DateTimeOriginal || '-'}
+                  </Text>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <Text variant={TextVariants.heading} className="mb-3">
+                Camera Details
               </Text>
               <div className="flex flex-col gap-2">
-                <MetadataItem label="Filename" value={selectedImage.path.split(/[\\/]/).pop()} />
-                <MetadataItem label="Dimensions" value={`${selectedImage.width} x ${selectedImage.height}`} />
-                <MetadataItem label="Capture Date" value={selectedImage.exif?.DateTimeOriginal || '-'} />
-              </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {cameraGridSettings.map((item: any) => {
+                    const Icon = CAMERA_ICONS[item.key];
+                    return (
+                      <div
+                        key={item.key}
+                        className="flex items-center gap-2 bg-surface border border-surface px-3 py-2 rounded-xl cursor-default"
+                        data-tooltip={item.label}
+                      >
+                        {Icon && (
+                          <span className="text-text-secondary opacity-90 flex items-center justify-center shrink-0">
+                            <Icon />
+                          </span>
+                        )}
+                        <Text
+                          as="span"
+                          variant={TextVariants.small}
+                          color={TextColors.primary}
+                          weight={TextWeights.medium}
+                          className="truncate"
+                        >
+                          {item.value}
+                        </Text>
+                      </div>
+                    );
+                  })}
+                </div>
 
-              <div className="mt-4 bg-surface rounded-md border border-bg-primary overflow-hidden">
+                <div
+                  className="flex items-center gap-2 bg-surface border border-surface px-3 py-2 rounded-xl cursor-default"
+                  data-tooltip={lensSetting.label}
+                >
+                  {LensIcon && (
+                    <span className="text-text-secondary opacity-90 flex items-center justify-center shrink-0">
+                      <LensIcon />
+                    </span>
+                  )}
+                  <Text
+                    as="span"
+                    variant={TextVariants.small}
+                    weight={TextWeights.medium}
+                    color={TextColors.primary}
+                    className="truncate"
+                  >
+                    {lensSetting.value}
+                  </Text>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <Text variant={TextVariants.heading} className="mb-3">
+                Author & Copyright
+              </Text>
+              <div className="bg-surface rounded-xl overflow-hidden">
                 <button
-                  onClick={() => setIsOrganizationExpanded(!isOrganizationExpanded)}
-                  className="w-full flex items-center justify-between p-4 hover:bg-surface/50 transition-colors"
+                  onClick={() => setIsAuthorExpanded(!isAuthorExpanded)}
+                  className="w-full flex items-center justify-between p-3.5 hover:bg-card-active transition-colors"
                 >
                   <Text
                     as="span"
@@ -245,7 +454,63 @@ export default function MetadataPanel({
                     color={TextColors.primary}
                     className="flex items-center gap-2"
                   >
-                    <Tag size={16} /> Organization
+                    <User size={16} /> Creator Details
+                  </Text>
+                  <Text color={TextColors.secondary}>
+                    {isAuthorExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  </Text>
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {isAuthorExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-2 pb-3 pt-2 border-t border-surface/50 flex flex-col gap-0.5">
+                        {EDITABLE_FIELDS.map((field) => {
+                          const rawValue = (selectedImage?.exif?.[field.key] as string) || '';
+                          const cleanValue = rawValue.replace(/^"|"$/g, '').trim();
+                          const displayValue = cleanValue.toLowerCase() === 'default' ? '' : cleanValue;
+                          return (
+                            <EditableMetadataItem
+                              key={field.key}
+                              label={field.label}
+                              value={displayValue}
+                              onSave={(newVal) => {
+                                if (onUpdateExif) {
+                                  onUpdateExif(targetPaths, { [field.key]: newVal });
+                                }
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            <div>
+              <Text variant={TextVariants.heading} className="mb-3">
+                Organization
+              </Text>
+              <div className="bg-surface rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setIsOrganizationExpanded(!isOrganizationExpanded)}
+                  className="w-full flex items-center justify-between p-3.5 hover:bg-card-active transition-colors"
+                >
+                  <Text
+                    as="span"
+                    variant={TextVariants.label}
+                    color={TextColors.primary}
+                    className="flex items-center gap-2"
+                  >
+                    <Tag size={16} /> Rating & Labels
                   </Text>
                   <Text color={TextColors.secondary}>
                     {isOrganizationExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -275,7 +540,7 @@ export default function MetadataPanel({
                             {[1, 2, 3, 4, 5].map((star) => (
                               <button
                                 key={star}
-                                onClick={() => onRate(star, [selectedImage.path])}
+                                onClick={() => onRate(star, targetPaths)}
                                 className="focus:outline-hidden transition-transform active:scale-95 hover:scale-110"
                               >
                                 <Star
@@ -302,12 +567,12 @@ export default function MetadataPanel({
                           </Text>
                           <div className="flex flex-wrap gap-2">
                             <button
-                              onClick={() => onSetColorLabel(null, [selectedImage.path])}
+                              onClick={() => onSetColorLabel(null, targetPaths)}
                               className={clsx(
-                                'w-5 h-5 rounded-full border border-text-tertiary/30 flex items-center justify-center transition-all hover:scale-110',
+                                'w-5 h-5 rounded-full flex items-center justify-center transition-all hover:scale-110',
                                 currentColor === null
                                   ? 'ring-2 ring-text-secondary ring-offset-1 ring-offset-bg-primary'
-                                  : 'opacity-50 hover:opacity-100',
+                                  : 'opacity-50 hover:opacity-100 hover:ring-2 hover:ring-text-secondary/20',
                               )}
                               data-tooltip="None"
                             >
@@ -316,7 +581,7 @@ export default function MetadataPanel({
                             {COLOR_LABELS.map((color: Color) => (
                               <button
                                 key={color.name}
-                                onClick={() => onSetColorLabel(color.name, [selectedImage.path])}
+                                onClick={() => onSetColorLabel(color.name, targetPaths)}
                                 className={clsx(
                                   'w-5 h-5 rounded-full transition-all hover:scale-110',
                                   currentColor === color.name
@@ -365,7 +630,7 @@ export default function MetadataPanel({
                                   </motion.div>
                                 ))
                               ) : (
-                                <Text variant={TextVariants.small} className="italic">
+                                <Text variant={TextVariants.small} className="italic text-text-secondary">
                                   No tags
                                 </Text>
                               )}
@@ -374,8 +639,8 @@ export default function MetadataPanel({
 
                           <div
                             className={clsx(
-                              'flex items-center bg-surface border rounded-md px-2 py-1 transition-colors',
-                              isTagInputFocused ? 'border-accent' : 'border-border-color',
+                              'flex items-center bg-bg-primary border rounded-md px-2 py-1.5 transition-colors',
+                              isTagInputFocused ? 'border-accent' : 'border-surface',
                             )}
                           >
                             <input
@@ -417,26 +682,13 @@ export default function MetadataPanel({
               </div>
             </div>
 
-            {keyCameraSettings.length > 0 && (
-              <div>
-                <Text variant={TextVariants.heading} className="border-b border-surface pb-1 mb-2">
-                  Key Camera Settings
-                </Text>
-                <div className="flex flex-col gap-2">
-                  {keyCameraSettings.map((item: any) => (
-                    <MetadataItem key={item.key} label={item.label} value={item.value} />
-                  ))}
-                </div>
-              </div>
-            )}
-
             {hasGps && gpsData?.lat && gpsData?.lon && (
               <div>
-                <Text variant={TextVariants.heading} className="border-b border-surface pb-1 mb-2">
+                <Text variant={TextVariants.heading} className="mb-3">
                   GPS Location
                 </Text>
                 <div className="flex flex-col gap-2">
-                  <div className="relative rounded-md overflow-hidden border border-surface">
+                  <div className="relative rounded-md overflow-hidden border border-surface shadow-sm">
                     <iframe
                       className="pointer-events-none"
                       frameBorder="0"
@@ -453,17 +705,17 @@ export default function MetadataPanel({
                       width="100%"
                     ></iframe>
                     <a
-                      className="absolute inset-0 cursor-pointer"
+                      className="absolute inset-0 cursor-pointer hover:bg-black/10 transition-colors"
                       href={`https://www.openstreetmap.org/?mlat=${gpsData.lat}&mlon=${gpsData.lon}#map=15/${gpsData.lat}/${gpsData.lon}`}
                       rel="noopener noreferrer"
                       target="_blank"
                       data-tooltip="Click to open map in a new tab"
                     ></a>
                   </div>
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-0.5">
                     <MetadataItem label="Latitude" value={gpsData.lat?.toFixed(6)} />
                     <MetadataItem label="Longitude" value={gpsData.lon?.toFixed(6)} />
-                    {gpsData.altitude && <MetadataItem label="Altitude" value={gpsData.altitude} />}
+                    {gpsData.altitude && <MetadataItem label="Altitude" value={`${gpsData.altitude} m`} />}
                   </div>
                 </div>
               </div>
@@ -471,21 +723,15 @@ export default function MetadataPanel({
 
             {otherExifEntries.length > 0 && (
               <div>
-                <Text variant={TextVariants.heading} className="border-b border-surface pb-1 mb-2">
-                  All EXIF Data
+                <Text variant={TextVariants.heading} className="mb-3">
+                  Extended EXIF
                 </Text>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-0.5">
                   {otherExifEntries.map(([tag, value]) => (
                     <MetadataItem key={tag} label={formatExifTag(tag)} value={value} />
                   ))}
                 </div>
               </div>
-            )}
-
-            {Object.keys(selectedImage.exif || {}).length === 0 && (
-              <Text variant={TextVariants.small} className="text-center mt-4">
-                No EXIF data found in this file.
-              </Text>
             )}
           </div>
         ) : (
